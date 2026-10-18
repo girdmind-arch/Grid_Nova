@@ -15,6 +15,7 @@ import { MEMORY } from "./mock/memory";
 import { AGENTS, GUARDRAILS } from "./mock/agentRoster";
 import { RESULTS, RUN_HISTORY } from "./mock/results";
 import { simNow, syncSimClock } from "@/utils/simTime";
+import type { DataSource, HardwareState } from "@/types/hardware";
 
 /** Current grid snapshot: sources, battery, zones, flows, cost. */
 export async function getGridState(): Promise<GridState> {
@@ -285,3 +286,51 @@ export async function getGuardrails(): Promise<GuardrailRule[]> {
 }
 
 export { ServiceError, USE_MOCKS } from "./api";
+
+
+// ---------- Hardware demo (tabletop ESP32 rig) ----------
+// The rig is separate from the simulated campus. Its readings are volts and amps; they are never
+// returned by getGridState() and never shown as campus kW/kWh.
+
+// MOCK: demo data has no backend, so there is no rig. Nothing here is pretending to be a device.
+const NO_RIG: HardwareState = {
+  dataSource: "simulation",
+  campusDataSource: "simulation",
+  mode: "simulation",
+  configured: false,
+  armed: false,
+  armedUntil: null,
+  armedBy: null,
+  estop: { active: false, reason: null, resetPending: false },
+  device: {
+    id: null,
+    status: "never_seen",
+    ageS: null,
+    firmware: null,
+    source: null,
+    loads: {},
+    readings: { adapter: null, battery: null },
+    health: null,
+    warnings: [],
+    stateOfCharge: { status: "unknown", socPct: null, reason: "No rig is connected on demo data." },
+  },
+  commands: [],
+  capabilities: { scenarios: {}, loads: [] },
+};
+
+export async function getHardwareState(): Promise<HardwareState> {
+  if (!USE_MOCKS) return request<HardwareState>("/api/hardware/state");
+  await mockDelay(150);
+  return NO_RIG;
+}
+
+const hwPost = <T>(path: string, body?: unknown) => {
+  if (USE_MOCKS) throw new ServiceError("The hardware demo needs the live backend.");
+  return request<T>(path, { method: "POST", ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+};
+
+export const setHardwareMode = (mode: DataSource) => hwPost<HardwareState>("/api/hardware/mode", { mode });
+export const armHardware = (minutes = 10) => hwPost<HardwareState>("/api/hardware/arm", { minutes });
+export const disarmHardware = () => hwPost<HardwareState>("/api/hardware/disarm");
+export const emergencyStopHardware = () => hwPost<HardwareState>("/api/hardware/estop");
+export const resetEmergencyStop = () => hwPost<HardwareState>("/api/hardware/estop/reset");
