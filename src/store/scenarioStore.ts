@@ -1,10 +1,12 @@
 import { create } from "zustand";
 import type { FaultRequest, FaultType, GridState } from "@/types/grid";
+import type { HardwareDispatch } from "@/types/hardware";
 import type { ApprovalResponse, Decision, Incident, Lesson, ScenarioOutcome } from "@/types/agents";
 import { USE_MOCKS, clearScenario, getGridState, getThoughtTrace, injectFault, respondToApproval, runOrchestratorStep } from "@/services";
 import { play } from "@/utils/sound";
 import { useAppStore } from "./appStore";
 import { toast } from "./toastStore";
+import { VIEW_ONLY_MESSAGE, canActNow } from "./authStore";
 
 // The live loop shown on the Control Room (and later the Scenarios page):
 //   scenario fires → grid reacts → Orchestrator thinks → (approval?) → stable.
@@ -48,6 +50,8 @@ interface ScenarioState {
   revealed: number;
   /** Grid as it was right after the fault hit, shown until the agents act. */
   faultSnapshot: GridState | null;
+  /** Whether the tabletop rig was involved in the running scenario (live backend only). */
+  hardware: HardwareDispatch | null;
 
   loadTrace: () => Promise<void>;
   /** Live backend heartbeat: refresh the grid and the agents' trace. */
@@ -111,6 +115,7 @@ export const useScenarioStore = create<ScenarioState>((set, get) => ({
   liveDecision: null,
   revealed: 0,
   faultSnapshot: null,
+  hardware: null,
   touring: false,
 
   loadTrace: async () => {
@@ -137,6 +142,7 @@ export const useScenarioStore = create<ScenarioState>((set, get) => ({
   },
 
   run: async (type, opts) => {
+    if (!canActNow()) return void toast(VIEW_ONLY_MESSAGE);
     if (get().phase === "responding" || get().phase === "awaiting-approval") return;
     const req: FaultRequest = { type, ...DEFAULTS, ...opts };
     const token = ++runToken;
@@ -153,6 +159,7 @@ export const useScenarioStore = create<ScenarioState>((set, get) => ({
         liveDecision: null,
         revealed: 0,
         faultSnapshot: snapshot,
+        hardware: fault.hardware ?? null,
         active: { ...req, incidentId: fault.incidentId, startedAtMs: Date.now(), stabilisedAtMs: null },
         gridVersion: s.gridVersion + 1,
       }));
@@ -197,8 +204,10 @@ export const useScenarioStore = create<ScenarioState>((set, get) => ({
   },
 
   respond: async (decision, response) => {
+    if (!canActNow()) return void toast(VIEW_ONLY_MESSAGE);
     const token = runToken;
     const updated = await respondToApproval(decision, response);
+    if (updated.hardware) set({ hardware: updated.hardware });
     const live = get().liveDecision?.id === updated.id;
     if (live) {
       // Play the operator's choice and the agents' follow-up like the rest of the run.
@@ -253,6 +262,7 @@ export const useScenarioStore = create<ScenarioState>((set, get) => ({
   },
 
   startTour: async () => {
+    if (!canActNow()) return void toast(VIEW_ONLY_MESSAGE);
     if (get().phase === "responding") return;
     const token = ++tourToken;
     set({ touring: true });
@@ -290,7 +300,7 @@ let tourToken = 0;
 
 // ---------- playback helpers ----------
 
-const IDLE = { phase: "idle" as const, active: null, thinking: false, stage: null, liveDecision: null, revealed: 0, faultSnapshot: null };
+const IDLE = { phase: "idle" as const, active: null, thinking: false, stage: null, liveDecision: null, revealed: 0, faultSnapshot: null, hardware: null };
 
 /** Bumped by every new run or end, so an older playback stops quietly. */
 let runToken = 0;
