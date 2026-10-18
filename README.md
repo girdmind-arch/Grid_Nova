@@ -99,8 +99,9 @@ backend/
 │   ├── forecast.py    the Forecaster: next 12 hours and notable events
 │   ├── memory.py      incidents and lessons
 │   ├── evaluation.py  Results: 5 simulated weekdays, GridNova vs no AI
+│   ├── hardware.py    tabletop ESP32 rig: device API, command queue, safety rules
 │   └── main.py        FastAPI routes; also serves the built website
-└── tests/             API contract tests (pytest)
+└── tests/             API contract tests (pytest), incl. mocked-device hardware tests
 ```
 
 Project rules for contributors (design, theme tokens, data flow) are in [`CLAUDE.md`](CLAUDE.md).
@@ -169,6 +170,112 @@ Backend settings (environment variables): `CAMPUS_LAT`, `CAMPUS_LON`, `CAMPUS_NA
 - **Memory is in-memory.** Incidents and lessons reset when the backend restarts. Add a database to keep them.
 - **One shared campus.** Everyone who opens the site sees and controls the same simulated grid.
 - **The campus model is a simulation.** Weather is real, but building loads, the battery and the feeders are modelled. No real meters are connected.
+
+## Hardware demo (tabletop ESP32 rig)
+
+An optional, **low-voltage** demo that sits beside the simulation. The simulation stays the default and never changes: rig readings are USB-level volts and amps, they are never shown as campus kW/kWh, and `GET /api/grid/state` always says `"dataSource": "simulation"`.
+
+### Data flow
+
+```text
+website  ──(operator, signed in)──►  /api/hardware/*  ──►  HardwareService (backend/gridnova/hardware.py)
+                                                              ▲   │ queue of allow-listed commands
+ ESP32 ──(outbound HTTPS, device key)─────────────────────────┘   ▼
+   telemetry ▲ POST /api/hardware/device/telemetry     GET  /api/hardware/device/commands
+   ack       ▲ POST /api/hardware/device/commands/{id}/ack
+```
+
+The ESP32 only makes outbound HTTPS calls (no port forwarding). The website never sees the device key. Scenario buttons still run the simulation first and always; the backend then decides, per scenario, whether the rig is involved and tells the UI what happened (`hardware` in the `/api/scenarios/inject` response).
+
+### Modes and arming
+
+| State | What it means |
+| --- | --- |
+| **Simulation** (default) | Nothing is sent to the rig. Telemetry, if a device is connected, is only displayed. |
+| **Hardware demo** | The Hardware tab shows the rig. Still nothing is sent to it. |
+| **Hardware demo + armed** | An operator armed it (1–30 min, default 10). Only now may scenario actions or manual commands become rig commands. |
+
+Arming drops by itself when the time runs out, the device goes offline (15 s without readings: back to simulation only), an emergency stop happens, or you switch back to simulation, and any waiting commands are cancelled with it. Switch modes in **Settings → Hardware**, or `POST /api/hardware/mode {"mode": "simulation" | "hardware-demo"}`, `POST /api/hardware/arm {"minutes": 10}`, `POST /api/hardware/disarm`. Restarting the backend always returns to simulation, disarmed.
+
+### What each scenario does on the rig (capability map: `GET /api/hardware/capabilities`)
+
+| Scenario | On the rig | Notes |
+| --- | --- | --- |
+| Grid outage | Source adapter → power bank; for severity ≥ 3 also shed non-essential LED branches (severity − 2 of them, `extra`, `library`, `hostel` in that order) | **Waits for the same operator approval** the simulator asks for. Rejecting sends nothing. Ending the scenario restores the previous source and branches. |
+| Heatwave | Switches extra LED branches **on** (`ceil(severity/2)`, at most 3) to approximate higher demand | Not air conditioning or pre-cooling. Restored when the scenario ends. |
+| Line failure | Nothing: simulated only | Rerouting needs separately switched branches and a real alternate low-voltage path. This build has neither. |
+| Cloud cover | Nothing: software only | No solar panel in this build. No solar readings are ever shown or invented, and the rig is not told about it. |
+
+The scenario banner then shows one of: *Simulated only*, *Simulated: the rig cannot do this*, *Rig waiting for your approval*, *Sent to the rig*, or *Performed on the rig*. **"Performed" appears only when the device acknowledged the command and the next telemetry showed the change.**
+
+### Device API (the contract for any firmware)
+
+All device calls need `X-Device-Id: <id>` and `Authorization: Bearer <key>`. A wrong id or key is `401` (ten failures from one address in a minute are `429`); a server with no device keys answers `503`. These routes use the device key, not a user login. All times are Unix seconds from an NTP-synced clock; readings more than 30 s from server time are rejected.
+
+| Call | Purpose |
+| --- | --- |
+| `POST /api/hardware/device/telemetry` | Send state every ~2 s. Response: `{serverTime, control:{mode, armed, armedUntilEpoch, estop}}` |
+| `GET /api/hardware/device/commands` | Get up to 4 queued commands plus the same `control` flags. Commands are only handed out while armed (`estop`/`clear_estop` always). |
+| `POST /api/hardware/device/commands/{id}/ack` | Report `applied`, `rejected` or `failed`. Repeating an ack changes nothing. |
+| `GET /api/hardware/device/status` | The `control` flags only. |
+
+Telemetry body (unknown fields are rejected, so a state-of-charge field cannot be smuggled in):
+
+```json
+{
+  "deviceId": "esp32-demo-01", "bootId": "a1b2c3", "seq": 42, "ts": 1790000000.5, "firmware": "0.1.0",
+  "source": "adapter",
+  "adapter": {"voltageV": 5.02, "currentA": 0.40},
+  "battery": {"voltageV": 5.10, "currentA": 0.00},
+  "loads": {"critical": true, "hostel": true, "library": true, "extra": false},
+  "health": {"ina219Adapter": "ok", "ina219Battery": "ok", "muxInterlock": "ok"},
+  "estop": false, "uptimeS": 1234
+}
+```
+
+Rejected with a clear message: stale or future `ts`; `seq` not increasing within a `bootId` (replay); voltage outside 0–6 V, current outside −0.1–3 A, or over 15 W; an `adapter`/`battery` value when that sensor is not `ok`, or no value when it is; unknown load names; a `deviceId` that does not match the signed-in device. `source` is `adapter`, `powerbank` or `none` (mid-switch). Power is computed by the server as V × I and labelled that way. **Power-bank state of charge is always "unknown".**
+
+Commands the device may receive (`{id, type, params, expiresAtEpoch}`), and nothing else:
+
+| `type` | `params` |
+| --- | --- |
+| `select_source` | `{"source": "adapter" \| "powerbank"}` |
+| `set_load` | `{"load": "critical" \| "hostel" \| "library" \| "extra", "on": true \| false}` (`critical` can never be turned off) |
+| `estop` | none: every branch off, latched |
+| `clear_estop` | none: unlatch (branches stay off until commanded) |
+
+A device must ignore a command whose `expiresAtEpoch` has passed (default lifetime 20 s, never over 60 s), acknowledge every command it receives, and reject any `type` or name it does not know. Command ids are `cmd-` plus 12 hex characters.
+
+### Operator API (signed in; changes need the operator role)
+
+`GET /api/hardware/state` (status, readings with `kind: "measured"`, sensor health, warnings, latest commands, capability map), `GET /api/hardware/capabilities`, `POST /api/hardware/mode`, `/arm`, `/disarm`, `POST /api/hardware/commands` (`select_source` or `set_load` only, optional `idempotencyKey`; needs the rig armed and fresh readings; identical waiting commands are merged), `POST /api/hardware/estop` and `/estop/reset`. The emergency stop is always available. After a reset the rig is still disarmed and its branches stay off.
+
+Safety nets in the backend: a non-selected source delivering more than 0.25 A while armed trips an automatic emergency stop (suspected parallel connection); source changes are spaced 5 s apart; at most 8 commands wait at once; a device that latches its own emergency stop (button or firmware) latches the server too.
+
+### Setup and environment variables
+
+| Variable | Needed for | Notes |
+| --- | --- | --- |
+| `GRIDNOVA_DEVICE_KEYS` | Hardware demo mode at all | `"esp32-demo-01:<24+ random chars>"`, comma separated for several devices. There is no default. Generate with `openssl rand -hex 24`. |
+| `GRIDNOVA_USERS`, `GRIDNOVA_SECRET` | Controlling a rig on a public site | The demo accounts' passwords are printed on the sign-in page, so with them the server refuses hardware mode and arming (`409`). Set real accounts first (see `backend/gridnova/auth.py`). `GRIDNOVA_HW_ALLOW_DEMO_ACCOUNTS=1` overrides this for a private bench only. |
+
+On Railway add them under the service's **Variables** (never in the repo or the frontend), redeploy, then put the same id and key in the ESP32's `config.h`. No other variable is needed; the website and backend share one service. Hardware state lives in memory on a single instance, so a restart forgets the device until its next telemetry and returns to simulation, disarmed.
+
+1. Set the variables and deploy (or run `uvicorn gridnova.main:app` locally from `backend/`).
+2. Build the rig following [`hardware/README.md`](hardware/README.md) and flash `hardware/esp32/gridnova_rig/` (copy `config.example.h` to `config.h`).
+3. Open **Settings → Hardware**, choose **Hardware demo**, check the device shows *online*, then **Arm rig**.
+4. Run scenarios from the Scenarios page. Use **Emergency stop** at any time.
+
+To try everything without hardware, run the backend locally with a key and `GRIDNOVA_URL=http://127.0.0.1:8000 DEVICE_ID=… DEVICE_KEY=… python hardware/tools/mock_device.py`. It prints that its numbers are synthetic and refuses to talk to a non-local server.
+
+### Limits to be honest about
+
+- Tested with a **mocked device only** (`backend/tests/test_hardware.py`, 64 tests, plus a local browser run against the mock). The firmware example is not compiled or run here, and no real rig was connected. Never run tests or the mock against the production site.
+- This is a demonstration of the control loop at USB scale, not a model of the campus: 5 V readings say nothing about campus power.
+- The backend interlock and commands are software. The physical source selector has to be break-before-make by itself (see `hardware/README.md`).
+- Device-key lock-out is per client address, so a device behind a shared NAT can be locked out by someone else's bad attempts for up to a minute.
+- Approval mapping is deliberately simple: the "modify" option's hostel percentage is not translated into LED branches; any approval releases the rig plan as computed.
+- `backend/gridmind/` is an older copy of the backend and does not have this feature; Railway runs `backend/gridnova`.
 
 ## Campus data
 
