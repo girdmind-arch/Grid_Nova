@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import * as Dropdown from "@radix-ui/react-dropdown-menu";
-import { Bell, CloudSun, Search } from "lucide-react";
+import { Bell, CloudSun, LogOut, Search } from "lucide-react";
+import { AUTH_REQUIRED, signOut } from "@/services/auth";
+import { useAuthStore } from "@/store/authStore";
 import { useSimClock } from "@/hooks/useSimClock";
 import { useAppStore } from "@/store/appStore";
 import { formatDate, formatTime } from "@/utils/format";
@@ -183,16 +185,59 @@ export function Notifications() {
   );
 }
 
-// ---------- Operator avatar ----------
+// ---------- Operator avatar / account menu ----------
 export function OperatorAvatar() {
+  const session = useAuthStore((s) => s.session);
+  const navigate = useNavigate();
+
+  // Demo data has no accounts: a plain badge.
+  if (!AUTH_REQUIRED || !session) {
+    return (
+      <span
+        role="img"
+        aria-label="Signed in as Duty Operator"
+        title="Duty Operator"
+        className="grid size-9 shrink-0 place-items-center rounded-full border border-border bg-surface-sunken text-[13px] font-bold text-fg-muted"
+      >
+        DO
+      </span>
+    );
+  }
+  const initials = session.name.slice(0, 2).toUpperCase();
   return (
-    <span
-      role="img"
-      aria-label="Signed in as Duty Operator"
-      title="Duty Operator"
-      className="grid size-9 shrink-0 place-items-center rounded-full border border-border bg-surface-sunken text-[13px] font-bold text-fg-muted"
-    >
-      DO
-    </span>
+    <Dropdown.Root>
+      <Dropdown.Trigger asChild>
+        <button
+          type="button"
+          aria-label={`Account menu, signed in as ${session.name} (${session.role})`}
+          className="grid size-9 shrink-0 place-items-center rounded-full border border-border bg-surface-sunken text-[13px] font-bold text-fg-muted hover:text-fg pointer-coarse:size-11"
+        >
+          {initials}
+        </button>
+      </Dropdown.Trigger>
+      <Dropdown.Portal>
+        <Dropdown.Content
+          align="end"
+          sideOffset={8}
+          collisionPadding={16}
+          className="z-50 w-[min(260px,calc(100vw-32px))] glass-strong rounded-lg border border-glass-border bg-surface-solid/92 p-1.5 shadow-lg data-[state=open]:animate-fade-in"
+        >
+          <div className="px-2.5 pt-2 pb-2.5">
+            <p className="truncate text-sm font-semibold text-fg">{session.name}</p>
+            <p className="mt-0.5 text-[13px] text-fg-muted">{session.role === "operator" ? "Operator: can run scenarios and approve plans" : "Viewer: read-only"}</p>
+          </div>
+          <Dropdown.Separator className="my-1 h-px bg-border" />
+          <Dropdown.Item
+            onSelect={() => {
+              signOut();
+              navigate("/login", { replace: true });
+            }}
+            className="flex cursor-default items-center gap-2 rounded-md px-2.5 py-2.5 text-sm font-medium text-fg outline-none data-[highlighted]:bg-surface-sunken"
+          >
+            <LogOut aria-hidden className="size-4" strokeWidth={1.75} /> Sign out
+          </Dropdown.Item>
+        </Dropdown.Content>
+      </Dropdown.Portal>
+    </Dropdown.Root>
   );
 }
