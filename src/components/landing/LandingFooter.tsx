@@ -3,7 +3,7 @@ import { FolderGit2 } from "lucide-react";
 import { Logo } from "@/components/layout/Logo";
 import { LANDING_LINKS } from "./LandingHeader";
 
-export const REPO_URL = "https://github.com/girdmind-arch/Grid_Mind";
+export const REPO_URL = "https://github.com/girdmind-arch/Grid_Nova";
 
 export function LandingFooter() {
   return (
