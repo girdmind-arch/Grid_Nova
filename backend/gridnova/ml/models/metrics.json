@@ -1,0 +1,1010 @@
+{
+ "trainedAt": "2026-10-20T10:02:56+00:00",
+ "trainingSeconds": 62,
+ "forecaster": {
+  "model": "Neural network 16-48-48-12, tanh, trained with Adam (numpy, written for GridNova)",
+  "trainExamples": 7200,
+  "validationExamples": 1440,
+  "maeKw": 37.3,
+  "mapePct": 3.57,
+  "maeByHourAheadKw": [
+   39.4,
+   37.9,
+   36.6,
+   37.4,
+   37.7,
+   36.2,
+   36.1,
+   37.0,
+   36.7,
+   37.1,
+   37.1,
+   38.7
+  ],
+  "baselineMaeKw": {
+   "typicalDayProfile": 92.9,
+   "sameAsNow": 370.2
+  },
+  "curve": [
+   {
+    "epoch": 1,
+    "trainMse": 22137,
+    "valMse": 22934
+   },
+   {
+    "epoch": 2,
+    "trainMse": 5780,
+    "valMse": 6359
+   },
+   {
+    "epoch": 3,
+    "trainMse": 3263,
+    "valMse": 3586
+   },
+   {
+    "epoch": 4,
+    "trainMse": 2663,
+    "valMse": 2943
+   },
+   {
+    "epoch": 5,
+    "trainMse": 2530,
+    "valMse": 2787
+   },
+   {
+    "epoch": 6,
+    "trainMse": 2413,
+    "valMse": 2640
+   },
+   {
+    "epoch": 7,
+    "trainMse": 2377,
+    "valMse": 2602
+   },
+   {
+    "epoch": 8,
+    "trainMse": 2288,
+    "valMse": 2493
+   },
+   {
+    "epoch": 9,
+    "trainMse": 2307,
+    "valMse": 2556
+   },
+   {
+    "epoch": 10,
+    "trainMse": 2303,
+    "valMse": 2514
+   },
+   {
+    "epoch": 11,
+    "trainMse": 2218,
+    "valMse": 2435
+   },
+   {
+    "epoch": 12,
+    "trainMse": 2279,
+    "valMse": 2524
+   },
+   {
+    "epoch": 13,
+    "trainMse": 2249,
+    "valMse": 2476
+   },
+   {
+    "epoch": 14,
+    "trainMse": 2171,
+    "valMse": 2388
+   },
+   {
+    "epoch": 15,
+    "trainMse": 2246,
+    "valMse": 2467
+   },
+   {
+    "epoch": 16,
+    "trainMse": 2214,
+    "valMse": 2426
+   },
+   {
+    "epoch": 17,
+    "trainMse": 2198,
+    "valMse": 2405
+   },
+   {
+    "epoch": 18,
+    "trainMse": 2239,
+    "valMse": 2403
+   },
+   {
+    "epoch": 19,
+    "trainMse": 2225,
+    "valMse": 2438
+   },
+   {
+    "epoch": 20,
+    "trainMse": 2185,
+    "valMse": 2366
+   },
+   {
+    "epoch": 21,
+    "trainMse": 2193,
+    "valMse": 2396
+   },
+   {
+    "epoch": 22,
+    "trainMse": 2187,
+    "valMse": 2363
+   },
+   {
+    "epoch": 23,
+    "trainMse": 2220,
+    "valMse": 2415
+   },
+   {
+    "epoch": 24,
+    "trainMse": 2188,
+    "valMse": 2425
+   },
+   {
+    "epoch": 25,
+    "trainMse": 2157,
+    "valMse": 2367
+   },
+   {
+    "epoch": 26,
+    "trainMse": 2264,
+    "valMse": 2441
+   },
+   {
+    "epoch": 27,
+    "trainMse": 2197,
+    "valMse": 2446
+   },
+   {
+    "epoch": 28,
+    "trainMse": 2164,
+    "valMse": 2360
+   },
+   {
+    "epoch": 29,
+    "trainMse": 2155,
+    "valMse": 2366
+   },
+   {
+    "epoch": 30,
+    "trainMse": 2164,
+    "valMse": 2380
+   },
+   {
+    "epoch": 31,
+    "trainMse": 2193,
+    "valMse": 2381
+   },
+   {
+    "epoch": 32,
+    "trainMse": 2139,
+    "valMse": 2337
+   },
+   {
+    "epoch": 33,
+    "trainMse": 2191,
+    "valMse": 2435
+   },
+   {
+    "epoch": 34,
+    "trainMse": 2184,
+    "valMse": 2417
+   },
+   {
+    "epoch": 35,
+    "trainMse": 2189,
+    "valMse": 2415
+   },
+   {
+    "epoch": 36,
+    "trainMse": 2161,
+    "valMse": 2353
+   },
+   {
+    "epoch": 37,
+    "trainMse": 2233,
+    "valMse": 2407
+   },
+   {
+    "epoch": 38,
+    "trainMse": 2123,
+    "valMse": 2339
+   },
+   {
+    "epoch": 39,
+    "trainMse": 2158,
+    "valMse": 2375
+   },
+   {
+    "epoch": 40,
+    "trainMse": 2218,
+    "valMse": 2387
+   },
+   {
+    "epoch": 41,
+    "trainMse": 2129,
+    "valMse": 2317
+   },
+   {
+    "epoch": 42,
+    "trainMse": 2131,
+    "valMse": 2317
+   },
+   {
+    "epoch": 43,
+    "trainMse": 2147,
+    "valMse": 2365
+   },
+   {
+    "epoch": 44,
+    "trainMse": 2278,
+    "valMse": 2427
+   },
+   {
+    "epoch": 45,
+    "trainMse": 2133,
+    "valMse": 2350
+   },
+   {
+    "epoch": 46,
+    "trainMse": 2118,
+    "valMse": 2337
+   },
+   {
+    "epoch": 47,
+    "trainMse": 2173,
+    "valMse": 2370
+   },
+   {
+    "epoch": 48,
+    "trainMse": 2260,
+    "valMse": 2480
+   },
+   {
+    "epoch": 49,
+    "trainMse": 2108,
+    "valMse": 2315
+   },
+   {
+    "epoch": 50,
+    "trainMse": 2134,
+    "valMse": 2327
+   },
+   {
+    "epoch": 51,
+    "trainMse": 2111,
+    "valMse": 2347
+   },
+   {
+    "epoch": 52,
+    "trainMse": 2116,
+    "valMse": 2319
+   },
+   {
+    "epoch": 53,
+    "trainMse": 2141,
+    "valMse": 2347
+   },
+   {
+    "epoch": 54,
+    "trainMse": 2088,
+    "valMse": 2327
+   },
+   {
+    "epoch": 55,
+    "trainMse": 2130,
+    "valMse": 2373
+   },
+   {
+    "epoch": 56,
+    "trainMse": 2216,
+    "valMse": 2384
+   },
+   {
+    "epoch": 57,
+    "trainMse": 2132,
+    "valMse": 2373
+   },
+   {
+    "epoch": 58,
+    "trainMse": 2072,
+    "valMse": 2303
+   },
+   {
+    "epoch": 59,
+    "trainMse": 2142,
+    "valMse": 2410
+   },
+   {
+    "epoch": 60,
+    "trainMse": 2172,
+    "valMse": 2394
+   },
+   {
+    "epoch": 61,
+    "trainMse": 2157,
+    "valMse": 2427
+   },
+   {
+    "epoch": 62,
+    "trainMse": 2342,
+    "valMse": 2494
+   },
+   {
+    "epoch": 63,
+    "trainMse": 2072,
+    "valMse": 2323
+   },
+   {
+    "epoch": 64,
+    "trainMse": 2128,
+    "valMse": 2361
+   },
+   {
+    "epoch": 65,
+    "trainMse": 2118,
+    "valMse": 2368
+   },
+   {
+    "epoch": 66,
+    "trainMse": 2085,
+    "valMse": 2324
+   },
+   {
+    "epoch": 67,
+    "trainMse": 2120,
+    "valMse": 2370
+   },
+   {
+    "epoch": 68,
+    "trainMse": 2061,
+    "valMse": 2315
+   },
+   {
+    "epoch": 69,
+    "trainMse": 2110,
+    "valMse": 2377
+   },
+   {
+    "epoch": 70,
+    "trainMse": 2079,
+    "valMse": 2307
+   },
+   {
+    "epoch": 71,
+    "trainMse": 2110,
+    "valMse": 2372
+   },
+   {
+    "epoch": 72,
+    "trainMse": 2145,
+    "valMse": 2373
+   },
+   {
+    "epoch": 73,
+    "trainMse": 2138,
+    "valMse": 2383
+   },
+   {
+    "epoch": 74,
+    "trainMse": 2107,
+    "valMse": 2306
+   },
+   {
+    "epoch": 75,
+    "trainMse": 2180,
+    "valMse": 2412
+   },
+   {
+    "epoch": 76,
+    "trainMse": 2184,
+    "valMse": 2483
+   },
+   {
+    "epoch": 77,
+    "trainMse": 2127,
+    "valMse": 2387
+   },
+   {
+    "epoch": 78,
+    "trainMse": 2174,
+    "valMse": 2490
+   },
+   {
+    "epoch": 79,
+    "trainMse": 2121,
+    "valMse": 2373
+   },
+   {
+    "epoch": 80,
+    "trainMse": 2129,
+    "valMse": 2372
+   }
+  ]
+ },
+ "planner": {
+  "model": "Tabular Q-learning, 24 h \u00d7 10 battery \u00d7 7 load \u00d7 4 peak-margin \u00d7 5 forecast states, 8 actions",
+  "episodes": 40000,
+  "statesVisited": 3749,
+  "forecastNoisePct": 3.57,
+  "curve": [
+   {
+    "episode": 1000,
+    "avgSavedInr": -1034,
+    "epsilon": 0.97
+   },
+   {
+    "episode": 2000,
+    "avgSavedInr": -976,
+    "epsilon": 0.939
+   },
+   {
+    "episode": 3000,
+    "avgSavedInr": -855,
+    "epsilon": 0.909
+   },
+   {
+    "episode": 4000,
+    "avgSavedInr": -778,
+    "epsilon": 0.879
+   },
+   {
+    "episode": 5000,
+    "avgSavedInr": -743,
+    "epsilon": 0.848
+   },
+   {
+    "episode": 6000,
+    "avgSavedInr": -526,
+    "epsilon": 0.818
+   },
+   {
+    "episode": 7000,
+    "avgSavedInr": -404,
+    "epsilon": 0.788
+   },
+   {
+    "episode": 8000,
+    "avgSavedInr": -223,
+    "epsilon": 0.758
+   },
+   {
+    "episode": 9000,
+    "avgSavedInr": -44,
+    "epsilon": 0.727
+   },
+   {
+    "episode": 10000,
+    "avgSavedInr": 61,
+    "epsilon": 0.697
+   },
+   {
+    "episode": 11000,
+    "avgSavedInr": 146,
+    "epsilon": 0.667
+   },
+   {
+    "episode": 12000,
+    "avgSavedInr": 360,
+    "epsilon": 0.636
+   },
+   {
+    "episode": 13000,
+    "avgSavedInr": 505,
+    "epsilon": 0.606
+   },
+   {
+    "episode": 14000,
+    "avgSavedInr": 691,
+    "epsilon": 0.576
+   },
+   {
+    "episode": 15000,
+    "avgSavedInr": 932,
+    "epsilon": 0.545
+   },
+   {
+    "episode": 16000,
+    "avgSavedInr": 1168,
+    "epsilon": 0.515
+   },
+   {
+    "episode": 17000,
+    "avgSavedInr": 1348,
+    "epsilon": 0.485
+   },
+   {
+    "episode": 18000,
+    "avgSavedInr": 1650,
+    "epsilon": 0.454
+   },
+   {
+    "episode": 19000,
+    "avgSavedInr": 1785,
+    "epsilon": 0.424
+   },
+   {
+    "episode": 20000,
+    "avgSavedInr": 2170,
+    "epsilon": 0.394
+   },
+   {
+    "episode": 21000,
+    "avgSavedInr": 2295,
+    "epsilon": 0.363
+   },
+   {
+    "episode": 22000,
+    "avgSavedInr": 2539,
+    "epsilon": 0.333
+   },
+   {
+    "episode": 23000,
+    "avgSavedInr": 2839,
+    "epsilon": 0.303
+   },
+   {
+    "episode": 24000,
+    "avgSavedInr": 2988,
+    "epsilon": 0.273
+   },
+   {
+    "episode": 25000,
+    "avgSavedInr": 3329,
+    "epsilon": 0.242
+   },
+   {
+    "episode": 26000,
+    "avgSavedInr": 3638,
+    "epsilon": 0.212
+   },
+   {
+    "episode": 27000,
+    "avgSavedInr": 3748,
+    "epsilon": 0.182
+   },
+   {
+    "episode": 28000,
+    "avgSavedInr": 3994,
+    "epsilon": 0.151
+   },
+   {
+    "episode": 29000,
+    "avgSavedInr": 4231,
+    "epsilon": 0.121
+   },
+   {
+    "episode": 30000,
+    "avgSavedInr": 4590,
+    "epsilon": 0.091
+   },
+   {
+    "episode": 31000,
+    "avgSavedInr": 4884,
+    "epsilon": 0.06
+   },
+   {
+    "episode": 32000,
+    "avgSavedInr": 5120,
+    "epsilon": 0.03
+   },
+   {
+    "episode": 33000,
+    "avgSavedInr": 5255,
+    "epsilon": 0.03
+   },
+   {
+    "episode": 34000,
+    "avgSavedInr": 5238,
+    "epsilon": 0.03
+   },
+   {
+    "episode": 35000,
+    "avgSavedInr": 5245,
+    "epsilon": 0.03
+   },
+   {
+    "episode": 36000,
+    "avgSavedInr": 5270,
+    "epsilon": 0.03
+   },
+   {
+    "episode": 37000,
+    "avgSavedInr": 5259,
+    "epsilon": 0.03
+   },
+   {
+    "episode": 38000,
+    "avgSavedInr": 5290,
+    "epsilon": 0.03
+   },
+   {
+    "episode": 39000,
+    "avgSavedInr": 5268,
+    "epsilon": 0.03
+   },
+   {
+    "episode": 40000,
+    "avgSavedInr": 5334,
+    "epsilon": 0.03
+   }
+  ],
+  "evaluation": {
+   "days": 30,
+   "avgNoAiInr": 185488,
+   "avgRulesInr": 175140,
+   "avgLearnedInr": 177781,
+   "learnedSavedVsNoAiPct": 4.16,
+   "rulesSavedVsNoAiPct": 5.58,
+   "learnedVsRulesInr": -2641,
+   "learnedBeatsRulesDays": 0,
+   "minSocPct": 20.0,
+   "perDay": [
+    {
+     "day": 1,
+     "noAiInr": 216601,
+     "rulesInr": 204719,
+     "learnedInr": 208085,
+     "learnedPeakKw": 1489,
+     "learnedMinSoc": 22.0
+    },
+    {
+     "day": 2,
+     "noAiInr": 187216,
+     "rulesInr": 177502,
+     "learnedInr": 180057,
+     "learnedPeakKw": 1374,
+     "learnedMinSoc": 20.0
+    },
+    {
+     "day": 3,
+     "noAiInr": 208196,
+     "rulesInr": 195360,
+     "learnedInr": 198006,
+     "learnedPeakKw": 1481,
+     "learnedMinSoc": 23.1
+    },
+    {
+     "day": 4,
+     "noAiInr": 182235,
+     "rulesInr": 172570,
+     "learnedInr": 175294,
+     "learnedPeakKw": 1335,
+     "learnedMinSoc": 20.0
+    },
+    {
+     "day": 5,
+     "noAiInr": 165761,
+     "rulesInr": 156629,
+     "learnedInr": 158497,
+     "learnedPeakKw": 1171,
+     "learnedMinSoc": 23.6
+    },
+    {
+     "day": 6,
+     "noAiInr": 146736,
+     "rulesInr": 138010,
+     "learnedInr": 141658,
+     "learnedPeakKw": 1226,
+     "learnedMinSoc": 22.4
+    },
+    {
+     "day": 7,
+     "noAiInr": 167237,
+     "rulesInr": 157979,
+     "learnedInr": 159840,
+     "learnedPeakKw": 1202,
+     "learnedMinSoc": 25.3
+    },
+    {
+     "day": 8,
+     "noAiInr": 201168,
+     "rulesInr": 189112,
+     "learnedInr": 191845,
+     "learnedPeakKw": 1448,
+     "learnedMinSoc": 23.5
+    },
+    {
+     "day": 9,
+     "noAiInr": 193836,
+     "rulesInr": 183864,
+     "learnedInr": 186564,
+     "learnedPeakKw": 1412,
+     "learnedMinSoc": 20.0
+    },
+    {
+     "day": 10,
+     "noAiInr": 173656,
+     "rulesInr": 164127,
+     "learnedInr": 166043,
+     "learnedPeakKw": 1252,
+     "learnedMinSoc": 20.0
+    },
+    {
+     "day": 11,
+     "noAiInr": 186177,
+     "rulesInr": 176193,
+     "learnedInr": 178950,
+     "learnedPeakKw": 1392,
+     "learnedMinSoc": 20.0
+    },
+    {
+     "day": 12,
+     "noAiInr": 179799,
+     "rulesInr": 169936,
+     "learnedInr": 172497,
+     "learnedPeakKw": 1359,
+     "learnedMinSoc": 20.0
+    },
+    {
+     "day": 13,
+     "noAiInr": 172153,
+     "rulesInr": 162838,
+     "learnedInr": 164790,
+     "learnedPeakKw": 1212,
+     "learnedMinSoc": 25.0
+    },
+    {
+     "day": 14,
+     "noAiInr": 188583,
+     "rulesInr": 178385,
+     "learnedInr": 182178,
+     "learnedPeakKw": 1511,
+     "learnedMinSoc": 20.0
+    },
+    {
+     "day": 15,
+     "noAiInr": 207822,
+     "rulesInr": 196729,
+     "learnedInr": 199726,
+     "learnedPeakKw": 1484,
+     "learnedMinSoc": 21.4
+    },
+    {
+     "day": 16,
+     "noAiInr": 187693,
+     "rulesInr": 177612,
+     "learnedInr": 180273,
+     "learnedPeakKw": 1410,
+     "learnedMinSoc": 20.0
+    },
+    {
+     "day": 17,
+     "noAiInr": 199592,
+     "rulesInr": 189849,
+     "learnedInr": 192625,
+     "learnedPeakKw": 1421,
+     "learnedMinSoc": 20.0
+    },
+    {
+     "day": 18,
+     "noAiInr": 166642,
+     "rulesInr": 157137,
+     "learnedInr": 158944,
+     "learnedPeakKw": 1230,
+     "learnedMinSoc": 20.0
+    },
+    {
+     "day": 19,
+     "noAiInr": 161336,
+     "rulesInr": 152284,
+     "learnedInr": 155308,
+     "learnedPeakKw": 1273,
+     "learnedMinSoc": 20.0
+    },
+    {
+     "day": 20,
+     "noAiInr": 199511,
+     "rulesInr": 189266,
+     "learnedInr": 192080,
+     "learnedPeakKw": 1445,
+     "learnedMinSoc": 20.0
+    },
+    {
+     "day": 21,
+     "noAiInr": 213200,
+     "rulesInr": 200672,
+     "learnedInr": 203390,
+     "learnedPeakKw": 1489,
+     "learnedMinSoc": 22.9
+    },
+    {
+     "day": 22,
+     "noAiInr": 171300,
+     "rulesInr": 161804,
+     "learnedInr": 163651,
+     "learnedPeakKw": 1244,
+     "learnedMinSoc": 20.0
+    },
+    {
+     "day": 23,
+     "noAiInr": 170367,
+     "rulesInr": 160749,
+     "learnedInr": 164148,
+     "learnedPeakKw": 1385,
+     "learnedMinSoc": 20.0
+    },
+    {
+     "day": 24,
+     "noAiInr": 190711,
+     "rulesInr": 180898,
+     "learnedInr": 183546,
+     "learnedPeakKw": 1380,
+     "learnedMinSoc": 20.0
+    },
+    {
+     "day": 25,
+     "noAiInr": 222752,
+     "rulesInr": 205583,
+     "learnedInr": 207410,
+     "learnedPeakKw": 1494,
+     "learnedMinSoc": 24.2
+    },
+    {
+     "day": 26,
+     "noAiInr": 154298,
+     "rulesInr": 145382,
+     "learnedInr": 148796,
+     "learnedPeakKw": 1285,
+     "learnedMinSoc": 20.0
+    },
+    {
+     "day": 27,
+     "noAiInr": 194131,
+     "rulesInr": 184182,
+     "learnedInr": 186874,
+     "learnedPeakKw": 1412,
+     "learnedMinSoc": 20.0
+    },
+    {
+     "day": 28,
+     "noAiInr": 155607,
+     "rulesInr": 146619,
+     "learnedInr": 148362,
+     "learnedPeakKw": 1147,
+     "learnedMinSoc": 21.1
+    },
+    {
+     "day": 29,
+     "noAiInr": 194213,
+     "rulesInr": 184235,
+     "learnedInr": 186980,
+     "learnedPeakKw": 1411,
+     "learnedMinSoc": 20.0
+    },
+    {
+     "day": 30,
+     "noAiInr": 206118,
+     "rulesInr": 193961,
+     "learnedInr": 197003,
+     "learnedPeakKw": 1496,
+     "learnedMinSoc": 23.4
+    }
+   ]
+  }
+ },
+ "scenarios": [
+  {
+   "type": "cloud_cover",
+   "baselineMin": 9.0,
+   "runs": [
+    {
+     "run": 1,
+     "recoveryMin": 4.6,
+     "twinRuns": 64,
+     "plan": "Cap import at 1,113 kW, bridge the solar dip",
+     "costInr": 73018
+    },
+    {
+     "run": 2,
+     "recoveryMin": 1.8,
+     "twinRuns": 8,
+     "plan": "Cap import at 1,113 kW, bridge the solar dip",
+     "costInr": 73018,
+     "lessonApplied": "Cap import at 1,113 kW, bridge the solar dip worked best at severity 3, 17:20, battery 82% (\u20b973,018 in the twin)."
+    },
+    {
+     "run": 3,
+     "recoveryMin": 1.8,
+     "twinRuns": 8,
+     "plan": "Cap import at 1,113 kW, bridge the solar dip",
+     "costInr": 73018,
+     "lessonApplied": "Cap import at 1,113 kW, bridge the solar dip worked best at severity 3, 17:20, battery 82% (\u20b973,018 in the twin)."
+    }
+   ]
+  },
+  {
+   "type": "heatwave",
+   "baselineMin": 12.0,
+   "runs": [
+    {
+     "run": 1,
+     "recoveryMin": 4.0,
+     "twinRuns": 48,
+     "plan": "Cap import at 1,100 kW",
+     "costInr": 73089
+    },
+    {
+     "run": 2,
+     "recoveryMin": 2.0,
+     "twinRuns": 8,
+     "plan": "Cap import at 1,100 kW",
+     "costInr": 73089,
+     "lessonApplied": "Cap import at 1,100 kW worked best at severity 3, 17:20, battery 82% (\u20b973,089 in the twin)."
+    },
+    {
+     "run": 3,
+     "recoveryMin": 2.0,
+     "twinRuns": 8,
+     "plan": "Cap import at 1,100 kW",
+     "costInr": 73089,
+     "lessonApplied": "Cap import at 1,100 kW worked best at severity 3, 17:20, battery 82% (\u20b973,089 in the twin)."
+    }
+   ]
+  },
+  {
+   "type": "line_failure",
+   "baselineMin": 21.0,
+   "runs": [
+    {
+     "run": 1,
+     "recoveryMin": 6.6,
+     "twinRuns": 48,
+     "plan": "Reroute GH1 at 78%, cap import at 1,090 kW",
+     "costInr": 72229
+    },
+    {
+     "run": 2,
+     "recoveryMin": 4.6,
+     "twinRuns": 8,
+     "plan": "Reroute GH1 at 78%, cap import at 1,090 kW",
+     "costInr": 72229,
+     "lessonApplied": "Reroute GH1 at 78%, cap import at 1,090 kW worked best at severity 3, 17:20, battery 82% (\u20b972,229 in the twin)."
+    },
+    {
+     "run": 3,
+     "recoveryMin": 4.6,
+     "twinRuns": 8,
+     "plan": "Reroute GH1 at 78%, cap import at 1,090 kW",
+     "costInr": 72229,
+     "lessonApplied": "Reroute GH1 at 78%, cap import at 1,090 kW worked best at severity 3, 17:20, battery 82% (\u20b972,229 in the twin)."
+    }
+   ]
+  },
+  {
+   "type": "grid_outage",
+   "baselineMin": 14.0,
+   "runs": [
+    {
+     "run": 1,
+     "recoveryMin": 6.4,
+     "twinRuns": 48,
+     "plan": "Hostels at 49%",
+     "costInr": 73292
+    },
+    {
+     "run": 2,
+     "recoveryMin": 4.4,
+     "twinRuns": 8,
+     "plan": "Hostels at 49%",
+     "costInr": 73292,
+     "lessonApplied": "Hostels at 49% worked best at severity 3, 17:20, battery 82% (\u20b973,292 in the twin)."
+    },
+    {
+     "run": 3,
+     "recoveryMin": 4.4,
+     "twinRuns": 8,
+     "plan": "Hostels at 49%",
+     "costInr": 73292,
+     "lessonApplied": "Hostels at 49% worked best at severity 3, 17:20, battery 82% (\u20b973,292 in the twin)."
+    }
+   ]
+  }
+ ]
+}

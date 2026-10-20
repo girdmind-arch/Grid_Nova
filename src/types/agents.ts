@@ -71,6 +71,21 @@ export interface Decision {
   outcome?: ScenarioOutcome;
   /** High-impact decisions pause for operator approval. */
   approval?: Approval;
+  /** How the Planner found this plan: its search in the digital twin (live backend only). */
+  search?: PlanSearch;
+}
+
+export interface PlanSearch {
+  twinRuns: number;
+  rounds: number;
+  /** Plans the Guardrail ruled out. */
+  rejected: number;
+  /** Cost (₹) of the best safe plan after each search round. */
+  bestByRound: number[];
+  /** Incident whose remembered plan seeded the search (the Critic's memory). */
+  seededFrom: string | null;
+  /** What the learned RL battery policy scored in the same search. */
+  learnedPolicyCostInr?: number;
 }
 
 export interface ScenarioOutcome {
@@ -84,6 +99,8 @@ export interface ScenarioOutcome {
   lessonApplied?: string;
   /** Lesson the Critic wrote after this run (first run of a scenario). */
   lessonLearned?: string;
+  /** Where the minutes went: sensors, the twin search, switching. */
+  breakdown?: { detectMin: number; analyseMin: number; actMin: number; twinRuns: number };
 }
 
 export type ApprovalStatus = "pending" | "approved" | "modified" | "rejected";
@@ -184,4 +201,50 @@ export interface ScenarioRunHistory {
   type: FaultType;
   baselineMin: number;
   runs: { run: number; recoveryMin: number; lessonApplied?: string }[];
+}
+
+// ---------- What the agents learned (GET /api/learning) ----------
+export interface LearningReport {
+  trained: {
+    trainedAt?: string;
+    trainingSeconds?: number;
+    forecaster?: {
+      model: string;
+      trainExamples: number;
+      validationExamples: number;
+      maeKw: number;
+      mapePct: number;
+      maeByHourAheadKw: number[];
+      baselineMaeKw: { typicalDayProfile: number; sameAsNow: number };
+    };
+    planner?: {
+      model: string;
+      episodes: number;
+      statesVisited: number;
+      forecastNoisePct: number;
+      curve: { episode: number; avgSavedInr: number; epsilon: number }[];
+      evaluation: {
+        days: number;
+        avgNoAiInr: number;
+        avgRulesInr: number;
+        avgLearnedInr: number;
+        learnedSavedVsNoAiPct: number;
+        rulesSavedVsNoAiPct: number;
+        learnedVsRulesInr: number;
+        learnedBeatsRulesDays: number;
+        minSocPct: number;
+      };
+    };
+    scenarios?: {
+      type: FaultType;
+      baselineMin: number;
+      runs: { run: number; recoveryMin: number; twinRuns: number; plan: string; costInr: number; lessonApplied?: string }[];
+    }[];
+  };
+  live: {
+    forecasterOnlineUpdates: number;
+    forecasterLiveMaeKw: number | null;
+    memories: { kind: string; source: string; note: string; recalled: number }[];
+  };
+  available: { forecaster: boolean; plannerPolicy: boolean };
 }

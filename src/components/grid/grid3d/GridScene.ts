@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { GridState, Zone } from "@/types/grid";
 import { formatKw, formatNumber } from "@/utils/format";
 import * as M from "./models";
@@ -97,7 +98,11 @@ interface NodeView {
   heat: THREE.Mesh; // coloured pad under the building: how hard it is working
   lift: number; // current hover/selection lift
   liftTarget: number;
+  windowLevel?: number; // last window brightness applied (skip identical updates)
+  labelHtml?: string; // last label markup written (skip identical updates)
 }
+
+type LineArgs = [points: THREE.Vector3[], kw: number, maxKw: number, tone: Tone, opts?: { reverse?: boolean }];
 
 interface FlowLine {
   group: THREE.Group;
@@ -212,6 +217,17 @@ export class GridScene {
   private reduceMotion: boolean;
   private narrow = false;
   private compact = false;
+  /** Phones and small screens: lower resolution, 30 fps, cheaper shadows and glass. */
+  private lowPower: boolean;
+  private lastTick = 0;
+  /** Materials shared by the flow lines, so rebuilding lines never recompiles shaders. */
+  private lineMats = new Map<string, THREE.Material>();
+  private windowMats = new Map<number, THREE.MeshStandardMaterial>();
+  private lineSig = "";
+  private labelsDirty = true;
+  private shadowsDirty = true;
+  private shadowAge = 0;
+  private lastCam = new Float32Array(18);
   private width = 1;
   private height = 1;
   private state: GridState | null = null;
@@ -221,15 +237,19 @@ export class GridScene {
     this.reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     this.pal = readPalette();
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
     const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, coarsePointer ? 1.5 : 1.75));
+    this.lowPower = coarsePointer || window.matchMedia("(max-width: 700px)").matches;
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: this.lowPower ? "default" : "high-performance" });
+    // A phone at 3x would render ~9x the pixels of a laptop: 1.25x is sharp enough for this scene.
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.lowPower ? 1.25 : 1.75));
     this.renderer.setClearColor(0x000000, 0);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = this.lowPower ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+    // Shadows only change when something moves: re-render them on demand, not every frame.
+    this.renderer.shadowMap.autoUpdate = false;
     this.renderer.domElement.style.display = "block";
     host.appendChild(this.renderer.domElement);
 
@@ -269,7 +289,10 @@ export class GridScene {
         roof: new THREE.MeshStandardMaterial({ roughness: 0.7 }),
         dark: new THREE.MeshStandardMaterial({ roughness: 0.35, metalness: 0.4 }),
         window: new THREE.MeshStandardMaterial({ roughness: 0.4, emissiveIntensity: 1 }),
-        glass: new THREE.MeshPhysicalMaterial({ roughness: 0.05, transmission: 0.6, transparent: true, opacity: 0.35, thickness: 0.2 }),
+        // Transmission renders the scene a second time every frame: desktop only.
+        glass: this.lowPower
+          ? new THREE.MeshStandardMaterial({ roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.4 })
+          : new THREE.MeshPhysicalMaterial({ roughness: 0.05, transmission: 0.6, transparent: true, opacity: 0.35, thickness: 0.2 }),
         metal: new THREE.LineBasicMaterial({ transparent: true, opacity: 0.85 }),
         panel: new THREE.MeshStandardMaterial({ roughness: 0.25, metalness: 0.5, emissiveIntensity: 0 }),
         leaf: new THREE.MeshStandardMaterial({ roughness: 0.9 }),
@@ -393,6 +416,7 @@ export class GridScene {
       }
     });
     model.traverse((o) => o.userData.flag && this.flags.push(o));
+    this.mergeStatic(model);
     group.add(model);
     group.userData.nodeId = id;
     const el = document.createElement("div");
@@ -404,6 +428,59 @@ export class GridScene {
     group.add(label);
     this.root.add(group);
     this.nodes.set(id, { group, ring, label, model, heat: pad, lift: 0, liftTarget: 0, slot });
+  }
+
+  /**
+   * Fuses a model's static parts into one mesh per material. Each building is made of
+   * dozens of small boxes; drawing them one by one cost ~350 draw calls per frame, which
+   * is what slowed phones down. Moving parts (solar panels, battery fills and rings,
+   * the bus halo, flags), windows, lines and see-through parts are left as they are.
+   */
+  private mergeStatic(model: THREE.Group) {
+    const skip = new Set<THREE.Object3D>();
+    const ud = model.userData;
+    for (const k of ["panels", "fills", "rings"]) for (const o of (ud[k] ?? []) as THREE.Object3D[]) o.traverse((c) => skip.add(c));
+    if (ud.halo) (ud.halo as THREE.Object3D).traverse((c) => skip.add(c));
+    model.traverse((o) => {
+      if (o.userData.flag) o.traverse((c) => skip.add(c));
+    });
+    model.updateMatrixWorld(true);
+    const inv = model.matrixWorld.clone().invert();
+    const buckets = new Map<string, { mat: THREE.Material; cast: boolean; geos: THREE.BufferGeometry[]; meshes: THREE.Mesh[] }>();
+    model.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh || (m as THREE.InstancedMesh).isInstancedMesh || skip.has(m) || Array.isArray(m.material)) return;
+      const mat = m.material as THREE.Material;
+      if (mat.transparent) return;
+      const g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
+      for (const name of Object.keys(g.attributes)) if (name !== "position" && name !== "normal") g.deleteAttribute(name);
+      if (!g.getAttribute("normal")) g.computeVertexNormals();
+      g.morphAttributes = {};
+      g.clearGroups();
+      g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld));
+      const key = `${mat.uuid}|${m.castShadow}`;
+      let b = buckets.get(key);
+      if (!b) buckets.set(key, (b = { mat, cast: m.castShadow, geos: [], meshes: [] }));
+      b.geos.push(g);
+      b.meshes.push(m);
+    });
+    for (const b of buckets.values()) {
+      if (b.meshes.length < 2) {
+        b.geos.forEach((g) => g.dispose());
+        continue;
+      }
+      const merged = mergeGeometries(b.geos, false);
+      b.geos.forEach((g) => g.dispose());
+      if (!merged) continue;
+      for (const m of b.meshes) {
+        m.removeFromParent();
+        m.geometry.dispose();
+      }
+      const mesh = new THREE.Mesh(merged, b.mat);
+      mesh.castShadow = b.cast;
+      mesh.receiveShadow = true;
+      model.add(mesh);
+    }
   }
 
   private buildNodes() {
@@ -524,7 +601,16 @@ export class GridScene {
     this.mats.batteryFill.emissive.copy(p.success);
     this.mats.ground.uniforms.uLine.value.copy(p.gridLine);
     this.mats.ground.uniforms.uAlpha.value = p.dark_mode ? 0.45 : 0.4;
+    // colours changed: drop the cached line and window looks so they are rebuilt in the new palette
+    this.clearLines();
+    this.lineMats.forEach((m) => m.dispose());
+    this.lineMats.clear();
+    this.lineSig = "";
+    this.windowMats.forEach((m) => m.dispose());
+    this.windowMats.clear();
+    for (const n of this.nodes.values()) n.windowLevel = undefined;
     if (this.state) this.update(this.state);
+    this.shadowsDirty = true;
     this.requestFrame();
   }
 
@@ -539,12 +625,24 @@ export class GridScene {
       l.group.traverse((o) => {
         const mesh = o as THREE.Mesh;
         if (mesh.geometry && mesh.geometry !== this.dotGeo && mesh.geometry !== this.packetGeo) mesh.geometry.dispose();
-        const mat = mesh.material as THREE.Material | undefined;
-        if (mat) mat.dispose();
+        // materials come from lineMats and are shared: they stay alive for the next build
       });
+      if (l.dots) l.dots.dispose();
+      if (l.packets) l.packets.dispose();
+      if (l.packetGlow) l.packetGlow.dispose();
       this.lineGroup.remove(l.group);
     }
     this.lines = [];
+  }
+
+  /** One shared material per look, so line rebuilds reuse compiled shaders. */
+  private lineMat(key: string, make: () => THREE.Material) {
+    let m = this.lineMats.get(key);
+    if (!m) {
+      m = make();
+      this.lineMats.set(key, m);
+    }
+    return m;
   }
 
   private addLine(points: THREE.Vector3[], kw: number, maxKw: number, tone: Tone, opts: { reverse?: boolean } = {}) {
@@ -556,15 +654,17 @@ export class GridScene {
     const r = 0.035 + 0.055 * Math.sqrt(Math.min(Math.max(kw, 0), maxKw) / maxKw);
     const segs = Math.max(24, Math.round(length * 10));
 
+    const hex = color.getHexString();
+    const dark = this.pal.dark_mode;
     const core = new THREE.Mesh(
-      new THREE.TubeGeometry(curve, segs, tone === "fault" ? 0.05 : r, 8, false),
-      new THREE.MeshBasicMaterial({ color, transparent: tone === "fault", opacity: 1 }),
+      new THREE.TubeGeometry(curve, segs, tone === "fault" ? 0.05 : r, this.lowPower ? 6 : 8, false),
+      this.lineMat(`core|${hex}|${tone === "fault"}`, () => new THREE.MeshBasicMaterial({ color, transparent: tone === "fault", opacity: 1 })),
     );
     group.add(core);
     if (active || tone === "fault") {
       const glow = new THREE.Mesh(
-        new THREE.TubeGeometry(curve, segs, r * 3.2 + 0.05, 8, false),
-        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: this.pal.dark_mode ? 0.22 : 0.16, depthWrite: false, blending: this.pal.dark_mode ? THREE.AdditiveBlending : THREE.NormalBlending }),
+        new THREE.TubeGeometry(curve, segs, r * 3.2 + 0.05, this.lowPower ? 6 : 8, false),
+        this.lineMat(`glow|${hex}|${dark}`, () => new THREE.MeshBasicMaterial({ color, transparent: true, opacity: dark ? 0.22 : 0.16, depthWrite: false, blending: dark ? THREE.AdditiveBlending : THREE.NormalBlending })),
       );
       group.add(glow);
     }
@@ -575,17 +675,17 @@ export class GridScene {
     if (active) {
       // a few bigger "packets" of energy ride the line; heavier flow, more packets
       const np = Math.max(1, Math.min(5, Math.round(length / 6 + Math.sqrt(Math.min(kw, maxKw) / maxKw) * 2)));
-      packets = new THREE.InstancedMesh(this.packetGeo, new THREE.MeshBasicMaterial({ color: color.clone().lerp(new THREE.Color("#ffffff"), 0.7) }), np);
+      packets = new THREE.InstancedMesh(this.packetGeo, this.lineMat(`packet|${hex}`, () => new THREE.MeshBasicMaterial({ color: color.clone().lerp(new THREE.Color("#ffffff"), 0.7) })), np);
       packetGlow = new THREE.InstancedMesh(
         this.packetGeo,
-        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: this.pal.dark_mode ? 0.35 : 0.22, depthWrite: false, blending: this.pal.dark_mode ? THREE.AdditiveBlending : THREE.NormalBlending }),
+        this.lineMat(`packetGlow|${hex}|${dark}`, () => new THREE.MeshBasicMaterial({ color, transparent: true, opacity: dark ? 0.35 : 0.22, depthWrite: false, blending: dark ? THREE.AdditiveBlending : THREE.NormalBlending })),
         np,
       );
       group.add(packets, packetGlow);
     }
     if (active) {
       const n = Math.max(2, Math.min(16, Math.round(length * (0.35 + 0.9 * Math.sqrt(Math.min(kw, maxKw) / maxKw)))));
-      dots = new THREE.InstancedMesh(this.dotGeo, new THREE.MeshBasicMaterial({ color: color.clone().lerp(new THREE.Color("#ffffff"), 0.45) }), n);
+      dots = new THREE.InstancedMesh(this.dotGeo, this.lineMat(`dot|${hex}`, () => new THREE.MeshBasicMaterial({ color: color.clone().lerp(new THREE.Color("#ffffff"), 0.45) })), n);
       group.add(dots);
     }
     if (tone === "fault") {
@@ -593,7 +693,7 @@ export class GridScene {
       const mid = curve.getPointAt(0.5);
       const x = new THREE.Group();
       for (const a of [Math.PI / 4, -Math.PI / 4]) {
-        const bar = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.08, 0.08), new THREE.MeshBasicMaterial({ color: this.pal.danger }));
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.08, 0.08), this.lineMat(`bar|${this.pal.danger.getHexString()}`, () => new THREE.MeshBasicMaterial({ color: this.pal.danger })));
         bar.rotation.y = a;
         x.add(bar);
       }
@@ -641,6 +741,7 @@ export class GridScene {
   // ---------- data ----------
   update(state: GridState) {
     this.state = state;
+    this.shadowsDirty = true; // the sun may have moved with the clock
     const before = this.nodes.size;
     this.ensureZones(state.zones);
     if (this.nodes.size !== before) {
@@ -686,12 +787,15 @@ export class GridScene {
       f.position.y = (f.userData.baseY as number) + h / 2;
     }
 
-    // lines
-    this.clearLines();
+    // lines: collected first, rebuilt only when what they look like changes
+    const specs: LineArgs[] = [];
+    const line = (...a: LineArgs) => {
+      specs.push(a);
+    };
     const bus = HUB.clone();
-    this.addLine([SRC.solar, new THREE.Vector3(-6.6, 0, SRC.solar.z), new THREE.Vector3(-6.6, 0, -0.5), new THREE.Vector3(bus.x - 0.6, 0, -0.5)], state.solarKw, maxKw, "solar");
-    this.addLine([SRC.grid, new THREE.Vector3(-6.6, 0, SRC.grid.z), new THREE.Vector3(-6.6, 0, 0.5), new THREE.Vector3(bus.x - 0.6, 0, 0.5)], outage ? 0 : state.gridImportKw, maxKw, outage ? "fault" : "grid");
-    this.addLine(
+    line([SRC.solar, new THREE.Vector3(-6.6, 0, SRC.solar.z), new THREE.Vector3(-6.6, 0, -0.5), new THREE.Vector3(bus.x - 0.6, 0, -0.5)], state.solarKw, maxKw, "solar");
+    line([SRC.grid, new THREE.Vector3(-6.6, 0, SRC.grid.z), new THREE.Vector3(-6.6, 0, 0.5), new THREE.Vector3(bus.x - 0.6, 0, 0.5)], outage ? 0 : state.gridImportKw, maxKw, outage ? "fault" : "grid");
+    line(
       batteryIn > 0 ? [bus, SRC.battery] : [SRC.battery, bus],
       batteryOut || batteryIn,
       maxKw,
@@ -702,7 +806,7 @@ export class GridScene {
     const maxZone = Math.max(1, ...state.zones.map((z) => z.demandKw));
     // feeder spine from the bus along the campus
     const lastX = Math.max(...slots.map((s) => s.x));
-    this.addLine([bus, new THREE.Vector3(lastX, 0, SPINE_Z)], Math.max(0, state.demandKw), maxKw * 2, "zone");
+    line([bus, new THREE.Vector3(lastX, 0, SPINE_Z)], Math.max(0, state.demandKw), maxKw * 2, "zone");
     for (const s of slots) {
       const z = s.zone;
       const faulted = z.status === "faulted" || z.status === "isolated";
@@ -711,7 +815,7 @@ export class GridScene {
       const end = new THREE.Vector3(s.x, 0, s.pos.z - sign * 1.2);
       if (rerouted) {
         // dead normal feeder, and power arriving from the neighbour on the backup feeder
-        this.addLine([new THREE.Vector3(s.x, 0, SPINE_Z), end], 0, maxKw / 2, "idle");
+        line([new THREE.Vector3(s.x, 0, SPINE_Z), end], 0, maxKw / 2, "idle");
         const same = slots.filter((o) => o.row === s.row && o.zone.id !== z.id);
         // nearest neighbour in the row (ties go to the one further along the feeder)
         const nb = same.sort((a, b) => Math.abs(a.x - s.x) - Math.abs(b.x - s.x) || b.x - a.x)[0];
@@ -720,7 +824,7 @@ export class GridScene {
           const edge = s.pos.z - sign * 1.15;
           const tie = s.pos.z - sign * 1.95;
           const dx = nb.x > s.x ? 0.55 : -0.55;
-          this.addLine(
+          line(
             [new THREE.Vector3(nb.x - dx, 0, edge), new THREE.Vector3(nb.x - dx, 0, tie), new THREE.Vector3(s.x + dx, 0, tie), new THREE.Vector3(s.x + dx, 0, edge)],
             z.demandKw,
             maxKw / 2,
@@ -728,7 +832,7 @@ export class GridScene {
           );
         }
       } else {
-        this.addLine([new THREE.Vector3(s.x, 0, SPINE_Z), end], faulted ? 0 : z.demandKw, maxKw / 2, faulted ? "fault" : "zone");
+        line([new THREE.Vector3(s.x, 0, SPINE_Z), end], faulted ? 0 : z.demandKw, maxKw / 2, faulted ? "fault" : "zone");
       }
       const peakSaving = z.status === "reduced" && !!z.note?.startsWith("Pre-cool");
       const status = faulted ? "Fault" : rerouted ? "Rerouted" : peakSaving ? "Peak saving" : z.status === "reduced" ? "Reduced" : undefined;
@@ -739,6 +843,18 @@ export class GridScene {
       this.setHeat(z.id, faulted ? this.pal.danger : this.pal.accent.clone().lerp(this.pal.warning, Math.max(0, heat - 0.55) / 0.45), faulted ? 0.35 : 0.08 + 0.3 * heat);
       // windows dim when the building is dark or running reduced
       this.setWindows(z.id, faulted ? 0.04 : z.status === "reduced" ? 0.55 : 1);
+    }
+    // Flow widths and dot counts follow kW in 5% steps, so small changes in the load
+    // (every few seconds) no longer rebuild every tube and re-upload it to the GPU.
+    const q = (kw: number, max: number) => (kw <= 1 ? 0 : Math.max(2, (Math.round((Math.min(kw, max) / max) * 20) / 20) * max));
+    const sig = specs
+      .map(([pts, kw, max, tone, o]) => `${pts.map((v) => `${v.x.toFixed(2)},${v.z.toFixed(2)}`).join(";")}|${q(kw, max)}|${Math.round(max)}|${tone}|${o?.reverse ? 1 : 0}`)
+      .join("/");
+    if (sig !== this.lineSig) {
+      this.lineSig = sig;
+      this.clearLines();
+      for (const [pts, kw, max, tone, o] of specs) this.addLine(pts, q(kw, max), max, tone, o);
+      this.shadowsDirty = true;
     }
     this.requestFrame();
   }
@@ -753,21 +869,23 @@ export class GridScene {
 
   private setWindows(id: string, level: number) {
     const node = this.nodes.get(id);
-    if (!node) return;
-    node.model.traverse((o) => {
-      if (o.userData.isWindows) {
-        const inst = o as THREE.InstancedMesh;
-        if (inst.material !== this.mats.models.window && level === 1) {
-          (inst.material as THREE.Material).dispose();
-          inst.material = this.mats.models.window;
-        } else if (level !== 1) {
-          const m = this.mats.models.window.clone();
-          m.emissiveIntensity = level * this.mats.models.window.emissiveIntensity;
-          m.color.copy(this.mats.models.window.color).multiplyScalar(0.4 + 0.6 * level);
-          if (inst.material !== this.mats.models.window) (inst.material as THREE.Material).dispose();
-          inst.material = m;
-        }
+    if (!node || node.windowLevel === level) return;
+    node.windowLevel = level;
+    // one shared material per brightness level (no new material, and no shader compile, per update)
+    let mat = this.mats.models.window;
+    if (level !== 1) {
+      const key = Math.round(level * 100);
+      let m = this.windowMats.get(key);
+      if (!m) {
+        m = this.mats.models.window.clone();
+        m.emissiveIntensity = level * this.mats.models.window.emissiveIntensity;
+        m.color.copy(this.mats.models.window.color).multiplyScalar(0.4 + 0.6 * level);
+        this.windowMats.set(key, m);
       }
+      mat = m;
+    }
+    node.model.traverse((o) => {
+      if (o.userData.isWindows) (o as THREE.InstancedMesh).material = mat;
     });
   }
 
@@ -786,12 +904,16 @@ export class GridScene {
     const name = esc(this.compact ? shortName(rawName) : rawName);
     const value = esc(rawValue);
     const sub = rawSub === undefined ? undefined : esc(rawSub);
-    const el = node.label.element;
-    el.dataset.tone = tone;
-    el.innerHTML =
+    const html =
       `<span class="grid3d-label__name">${name}${shield ? ' <span aria-hidden="true" class="grid3d-label__shield">◆</span>' : ""}</span>` +
       `<span class="grid3d-label__value">${value}</span>` +
       (sub ? `<span class="grid3d-label__sub">${sub}</span>` : "");
+    if (node.labelHtml === html + tone) return; // unchanged: no DOM write, no relayout
+    node.labelHtml = html + tone;
+    const el = node.label.element;
+    el.dataset.tone = tone;
+    el.innerHTML = html;
+    this.labelsDirty = true;
   }
 
   // ---------- sizing / camera ----------
@@ -1000,10 +1122,14 @@ export class GridScene {
     if (this.running || this.disposed) return;
     this.running = true;
     this.clock.getDelta();
-    const tick = () => {
+    this.lastTick = 0;
+    const minGap = this.lowPower ? 1000 / 30 - 2 : 0; // phones: 30 fps is smooth for this slow motion
+    const tick = (now: number) => {
       if (!this.running) return;
       this.raf = requestAnimationFrame(tick);
-      this.frame(this.clock.getDelta());
+      if (minGap && now - this.lastTick < minGap) return;
+      this.lastTick = now;
+      this.frame(Math.min(0.1, this.clock.getDelta()));
     };
     this.raf = requestAnimationFrame(tick);
   }
@@ -1015,6 +1141,8 @@ export class GridScene {
 
   /** One frame when animation is off (reduced motion / paused). */
   requestFrame() {
+    this.labelsDirty = true;
+    this.shadowsDirty = true;
     if (this.running || this.disposed) return;
     requestAnimationFrame(() => this.frame(0));
   }
@@ -1025,6 +1153,10 @@ export class GridScene {
     if (moving) this.t += dt;
     const t = this.t;
     for (const [id, n] of this.nodes) {
+      if (Math.abs(n.liftTarget - n.lift) > 1e-4) {
+        this.labelsDirty = true;
+        this.shadowsDirty = true;
+      }
       n.lift = moving ? n.lift + (n.liftTarget - n.lift) * Math.min(1, dt * 12) : n.liftTarget;
       n.group.position.y = n.lift;
       const mat = n.ring.material as THREE.LineBasicMaterial;
@@ -1085,8 +1217,25 @@ export class GridScene {
         if (n.ring.userData.fault) (n.ring.material as THREE.LineBasicMaterial).opacity = 0.4 + 0.6 * blink;
       }
     }
+    // Shadows: on demand, plus a slow refresh for the small moving parts (panels, flags, rings).
+    this.shadowAge += dt;
+    if (this.shadowsDirty || this.shadowAge > (this.lowPower ? 1 : 0.25)) {
+      this.renderer.shadowMap.needsUpdate = true;
+      this.shadowsDirty = false;
+      this.shadowAge = 0;
+    }
     this.renderer.render(this.scene, this.camera);
-    this.labels.render(this.scene, this.camera);
+    // The HTML labels only move when the camera or the labels change: skip the DOM work otherwise.
+    this.camera.updateMatrixWorld();
+    const e = this.camera.matrixWorld.elements;
+    const pm = this.camera.projectionMatrix.elements;
+    let moved = this.labelsDirty;
+    for (let i = 0; i < 16; i++) if (this.lastCam[i] !== e[i]) { this.lastCam[i] = e[i]; moved = true; }
+    if (this.lastCam[16] !== pm[0] || this.lastCam[17] !== pm[5]) { this.lastCam[16] = pm[0]; this.lastCam[17] = pm[5]; moved = true; }
+    if (moved) {
+      this.labels.render(this.scene, this.camera);
+      this.labelsDirty = false;
+    }
   }
 
   dispose() {
@@ -1094,6 +1243,14 @@ export class GridScene {
     this.stop();
     this.cleanup.forEach((fn) => fn());
     this.cleanup = [];
+    // OrbitControls removes its document-level listeners from canvas.getRootNode(). React has
+    // usually detached the canvas by now, so that lookup misses the document and the listeners
+    // (and this whole scene with them) leaked on every page visit. Re-attach it for the call.
+    const el = this.renderer.domElement;
+    if (!el.isConnected) {
+      el.style.display = "none";
+      document.body.appendChild(el);
+    }
     this.controls.dispose();
     this.clearLines();
     this.scene.traverse((o) => {
@@ -1105,7 +1262,11 @@ export class GridScene {
     });
     this.dotGeo.dispose();
     this.packetGeo.dispose();
+    this.lineMats.forEach((m) => m.dispose());
+    this.windowMats.forEach((m) => m.dispose());
     this.renderer.dispose();
+    // Free the WebGL context now: phones allow only a few, and page switches create new ones.
+    this.renderer.forceContextLoss();
     this.renderer.domElement.remove();
     this.labels.domElement.remove();
   }

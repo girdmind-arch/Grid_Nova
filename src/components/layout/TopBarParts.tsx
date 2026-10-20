@@ -3,12 +3,15 @@ import { useNavigate } from "react-router";
 import * as Dropdown from "@radix-ui/react-dropdown-menu";
 import { Bell, CloudSun, LogOut, Search } from "lucide-react";
 import { AUTH_REQUIRED, signOut } from "@/services/auth";
-import { useAuthStore } from "@/store/authStore";
+import { ServiceError, USE_MOCKS, setHardwareMode } from "@/services";
+import type { DataSource } from "@/types/hardware";
+import { useHardwareState } from "@/components/settings/HardwareDemo";
+import { useAuthStore, useCanAct } from "@/store/authStore";
 import { useSimClock } from "@/hooks/useSimClock";
 import { useAppStore } from "@/store/appStore";
 import { formatDate, formatTime } from "@/utils/format";
 import { cn } from "@/utils/cn";
-import { Button, Modal } from "@/components/ui";
+import { Button, Modal, toast } from "@/components/ui";
 import { NAV_ITEMS } from "./nav";
 
 // ---------- Simulated clock ----------
@@ -22,7 +25,7 @@ export function SimClock({ className }: { className?: string }) {
       ? "Real Indian time; the campus runs live"
       : `Demo clock running ${env.speed}× faster than real time`;
   return (
-    <div className={cn("flex flex-col leading-tight", className)} title={title}>
+    <div className={cn("flex flex-col leading-tight whitespace-nowrap", className)} title={title}>
       <span className="micro-label flex items-center gap-1.5 text-[11px] text-fg-subtle">
         {env && <span aria-hidden className="size-1.5 animate-pulse-soft rounded-full bg-success" />}
         {label}
@@ -43,7 +46,7 @@ export function LiveWeather({ className }: { className?: string }) {
   const live = env.weatherSource === "open-meteo";
   return (
     <div
-      className={cn("flex flex-col leading-tight", className)}
+      className={cn("flex flex-col leading-tight whitespace-nowrap", className)}
       title={live ? `Live weather from Open-Meteo for ${env.location}` : "Weather service unreachable: using a typical-day profile"}
     >
       <span className="micro-label text-[11px] text-fg-subtle">{live ? `Weather · ${env.location}` : "Weather · typical day"}</span>
@@ -129,7 +132,7 @@ export function SearchButton() {
           aria-label="Search"
           className={cn(
             "flex items-center gap-2.5 rounded-md text-fg-subtle transition-colors hover:text-fg",
-            "size-10 justify-center pointer-coarse:size-11 md:h-10 md:w-64 md:justify-start md:border md:border-border md:bg-surface-sunken md:px-3",
+            "size-10 justify-center pointer-coarse:size-11 md:h-10 md:w-64 md:justify-start md:border md:border-border md:bg-surface-sunken md:px-3 xl:w-44 2xl:w-64",
           )}
         >
           <Search aria-hidden className="size-[18px] shrink-0" />
@@ -239,5 +242,47 @@ export function OperatorAvatar() {
         </Dropdown.Content>
       </Dropdown.Portal>
     </Dropdown.Root>
+  );
+}
+
+// ---------- Data source: simulated campus or the tabletop rig ----------
+export function DataSourceSwitch({ className }: { className?: string }) {
+  if (USE_MOCKS) return null;
+  return <DataSourceSwitchLive className={className} />;
+}
+
+function DataSourceSwitchLive({ className }: { className?: string }) {
+  const { state, set, refresh } = useHardwareState();
+  const canAct = useCanAct();
+  if (!state?.configured) return null;
+  const rig = state.mode === "hardware-demo";
+  const pick = async (mode: DataSource) => {
+    if (mode === state.mode) return;
+    try {
+      set(await setHardwareMode(mode));
+      toast({
+        title: mode === "hardware-demo" ? "Hardware demo on" : "Simulation only",
+        description: mode === "hardware-demo" ? "The rig's readings now drive the demo. Arm it in Settings → Hardware to let the agents act on it." : "Nothing is sent to the rig.",
+        tone: "ai",
+      });
+    } catch (e) {
+      toast({ title: "Not switched.", description: e instanceof ServiceError ? e.message : "Try again.", tone: "warning" });
+      void refresh();
+    }
+  };
+  const btn = (on: boolean) =>
+    cn("h-8 rounded-full px-3 text-[13px] font-semibold transition-colors", on ? "bg-accent text-on-accent" : "text-fg-muted hover:text-fg");
+  return (
+    <div role="group" aria-label="Data source: simulated or hardware" className={cn("items-center gap-0.5 rounded-full border border-border bg-surface-sunken p-0.5", className)}>
+      <button type="button" aria-pressed={!rig} disabled={!canAct} onClick={() => void pick("simulation")} className={btn(!rig)} title="Simulated campus only">
+        Sim
+      </button>
+      <button type="button" aria-pressed={rig} disabled={!canAct} onClick={() => void pick("hardware-demo")} className={btn(rig)} title="Hardware: the tabletop rig's readings drive the demo">
+        <span className="inline-flex items-center gap-1.5">
+          {rig && <span aria-hidden className={cn("size-1.5 rounded-full", state.device.status === "online" ? "bg-success" : "bg-fg-subtle")} />}
+          Rig
+        </span>
+      </button>
+    </div>
   );
 }

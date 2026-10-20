@@ -42,6 +42,8 @@ class Fault:
     started_hour: float
     target_zone_id: str | None = None
     mitigated: bool = False
+    origin: str = "website"  # website | rig (started by a physical event on the tabletop rig)
+    note: str = ""
 
 
 def apply_fault(base: Conditions, fault: Fault | None) -> Conditions:
@@ -134,14 +136,16 @@ class LiveGrid:
 
     def _evening_target(self, from_hour: float, soc: float, cond: Conditions) -> float:
         """Battery import cap for the next evening peak, sized in the twin."""
+        # Sized for a rule-based cap, whatever controls the battery right now (e.g. the learned policy).
+        pol = replace(self.policy, controller=None, night_charge_to_pct=self.policy.night_charge_to_pct or 82.0)
         day_start = from_hour - (from_hour % 24)
         evening = day_start + 17 if from_hour % 24 < 22 else day_start + 24 + 17
         start = max(from_hour, evening)
         if from_hour < evening:
             # Battery state by 17:00 if nothing else happens before then.
-            bat, _, _ = simulate(from_hour, evening, cond, replace(self.policy, peak_target_kw=None), soc, dt_min=10)
+            bat, _, _ = simulate(from_hour, evening, cond, replace(pol, peak_target_kw=None), soc, dt_min=10)
             soc = bat.soc_pct
-        return best_peak_target(start, cond, self.policy, soc, end_hour=evening + 5)
+        return best_peak_target(start, cond, pol, soc, end_hour=evening + 5)
 
     def replan_peak(self):
         with self._lock:
@@ -197,13 +201,15 @@ class LiveGrid:
             self._advance()
             return self.snapshot_unlocked()
 
-    def start_fault(self, type_: str, severity: int, duration_min: int, target_zone_id: str | None) -> Fault:
+    def start_fault(self, type_: str, severity: int, duration_min: int, target_zone_id: str | None,
+                    origin: str = "website", note: str = "") -> Fault:
         with self._lock:
             self._advance()
             self.incident_counter += 1
             if type_ == "line_failure":
                 target_zone_id = target_zone_id or "hostel-gh1"
-            self.fault = Fault(type_, max(1, min(5, severity)), duration_min, f"INC-{self.incident_counter}", self._hour, target_zone_id)
+            self.fault = Fault(type_, max(1, min(5, severity)), duration_min, f"INC-{self.incident_counter}", self._hour, target_zone_id,
+                               origin=origin, note=note)
             self.mode = "ai"
             # The fault hits before anyone reacts: drop any earlier scenario response.
             keep = self.policy

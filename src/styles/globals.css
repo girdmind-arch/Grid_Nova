@@ -439,6 +439,28 @@ html.theme-transition *::after {
     --glass-blur: 16px;
   }
 }
+/* Phones and tablets: keep the backdrop still. Anything that moves behind the frosted
+   glass makes the browser re-blur every glass panel on every frame (the cause of the lag
+   and freezes on phones), so the drifting glows, bubbles, turbine and grain are frozen and
+   the bubbles lose their own blur. The canvas network is drawn once (GridBackdrop.tsx). */
+@media (pointer: coarse), (max-width: 767px) {
+  .grid-backdrop__glow,
+  .grid-backdrop__bubble,
+  .grid-backdrop__rotor {
+    animation: none !important;
+  }
+  .grid-backdrop__glow {
+    will-change: auto;
+    filter: none;
+  }
+  .grid-backdrop__bubble {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .grid-backdrop__grain {
+    display: none;
+  }
+}
 /* Installed as an app there is no browser bar: selecting text by accident while
    scrolling is annoying, so only real text fields and prose stay selectable. */
 @media (display-mode: standalone) {

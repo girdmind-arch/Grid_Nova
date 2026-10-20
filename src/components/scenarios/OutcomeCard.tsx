@@ -97,6 +97,13 @@ export function OutcomeCard({ type, runs, incidentId, className }: OutcomeCardPr
         })}
       </div>
 
+      {last.breakdown && (
+        <p className="mt-3 text-[13px] text-fg-muted">
+          GridNova's {formatNumber(last.recoveryMin, 1)} min: detect {formatNumber(last.breakdown.detectMin, 1)} · plan{" "}
+          {formatNumber(last.breakdown.analyseMin, 1)} ({last.breakdown.twinRuns} twin runs) · switch {formatNumber(last.breakdown.actMin, 1)}.
+        </p>
+      )}
+
       {runs.length > 1 && (
         <div className="mt-5 border-t border-border pt-4">
           <p className="flex items-center gap-2 text-sm font-semibold text-fg">
@@ -131,7 +138,7 @@ export function OutcomeCard({ type, runs, incidentId, className }: OutcomeCardPr
       {runs.length === 1 && last.lessonLearned && (
         <p className="mt-4 rounded-md bg-ai/6 px-3 py-2 text-[13px] text-fg-muted">
           <span className="font-semibold text-ai">Lesson saved to memory: </span>
-          {last.lessonLearned} Replay to see it used.
+          {last.lessonLearned} Replay: the Planner starts from this plan and needs fewer twin runs.
         </p>
       )}
 

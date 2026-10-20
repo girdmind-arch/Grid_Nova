@@ -6,7 +6,7 @@
 // in one place if the backend team picks different ones.
 
 import type { CampusLocation, ControlMode, Environment, FaultRequest, FaultResult, Forecast, GridState } from "@/types/grid";
-import type { Agent, ApprovalResponse, ControlModeAck, ControlState, Decision, GoalAck, WhatIfSettings, GuardrailRule, IncidentMemory, Results, ScenarioRunHistory } from "@/types/agents";
+import type { Agent, ApprovalResponse, ControlModeAck, ControlState, Decision, GoalAck, LearningReport, WhatIfSettings, GuardrailRule, IncidentMemory, Results, ScenarioRunHistory } from "@/types/agents";
 import { ServiceError, USE_MOCKS, mockDelay, request } from "./api";
 import { applyApproval, buildGridState, clearFault, currentFault, mitigateFault, runInfo, startFault } from "./mock/state";
 import { buildForecast } from "./mock/forecast";
@@ -14,15 +14,30 @@ import { DECISIONS, LEARNING, SCENARIO_DECISIONS } from "./mock/agents";
 import { MEMORY } from "./mock/memory";
 import { AGENTS, GUARDRAILS } from "./mock/agentRoster";
 import { RESULTS, RUN_HISTORY } from "./mock/results";
+import { LEARNING_SNAPSHOT } from "./mock/learning";
 import { simNow, syncSimClock } from "@/utils/simTime";
 import type { DataSource, HardwareState } from "@/types/hardware";
+
+// Several views ask for the grid at the same moment (top bar, page, 3D view): share one request.
+let gridInFlight: Promise<GridState> | null = null;
+/** After a change to the grid, the next read must not reuse a request started before it. */
+const freshGrid = () => {
+  gridInFlight = null;
+};
 
 /** Current grid snapshot: sources, battery, zones, flows, cost. */
 export async function getGridState(): Promise<GridState> {
   if (!USE_MOCKS) {
-    const state = await request<GridState>("/api/grid/state");
-    syncSimClock(state.timestamp, state.environment?.speed ?? 1);
-    return state;
+    if (gridInFlight) return gridInFlight;
+    gridInFlight = request<GridState>("/api/grid/state")
+      .then((state) => {
+        syncSimClock(state.timestamp, state.environment?.speed ?? 1);
+        return state;
+      })
+      .finally(() => {
+        gridInFlight = null;
+      });
+    return gridInFlight;
   }
   // MOCK: consistent snapshot from the in-browser demo campus.
   await mockDelay(300);
@@ -39,7 +54,7 @@ export async function getForecast(): Promise<Forecast> {
 
 /** Starts a scenario (cloud cover, heatwave, line failure, grid outage). */
 export async function injectFault(req: FaultRequest): Promise<FaultResult> {
-  if (!USE_MOCKS) return request<FaultResult>("/api/scenarios/inject", { method: "POST", body: JSON.stringify(req) });
+  if (!USE_MOCKS) return request<FaultResult>("/api/scenarios/inject", { method: "POST", body: JSON.stringify(req) }).finally(freshGrid);
   // MOCK: flips the in-memory state; agents do not really run.
   await mockDelay(250);
   const fault = startFault(req);
@@ -48,7 +63,7 @@ export async function injectFault(req: FaultRequest): Promise<FaultResult> {
 
 /** Clears the active scenario (used by the Scenarios page and replay). */
 export async function clearScenario(): Promise<void> {
-  if (!USE_MOCKS) return request<void>("/api/scenarios/clear", { method: "POST" });
+  if (!USE_MOCKS) return request<void>("/api/scenarios/clear", { method: "POST" }).finally(freshGrid);
   // MOCK: resets the in-memory fault.
   await mockDelay(150);
   clearFault();
@@ -122,7 +137,7 @@ const BATTERY_RUNTIME: Record<number, string> = { 50: "~1 h 50 min", 60: "~1 h 4
 /** Operator's answer to a paused high-impact decision. Returns the updated decision. */
 export async function respondToApproval(decision: Decision, response: ApprovalResponse): Promise<Decision> {
   if (!USE_MOCKS)
-    return request<Decision>(`/api/agents/decisions/${decision.id}/approval`, { method: "POST", body: JSON.stringify(response) });
+    return request<Decision>(`/api/agents/decisions/${decision.id}/approval`, { method: "POST", body: JSON.stringify(response) }).finally(freshGrid);
   // MOCK: applies the response to the in-memory grid and completes the trace.
   await mockDelay(500);
   const fault = currentFault();
@@ -283,6 +298,14 @@ export async function getGuardrails(): Promise<GuardrailRule[]> {
   // MOCK: fixed rule set.
   await mockDelay(200);
   return GUARDRAILS;
+}
+
+/** What the agents learned: trained models with their held-out scores, live learning, the Critic's memory. */
+export async function getLearning(): Promise<LearningReport> {
+  if (!USE_MOCKS) return request<LearningReport>("/api/learning");
+  // MOCK: snapshot of the last real training run (no live learning without the backend).
+  await mockDelay(250);
+  return LEARNING_SNAPSHOT;
 }
 
 export { ServiceError, USE_MOCKS } from "./api";

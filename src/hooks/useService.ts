@@ -40,7 +40,13 @@ export function useService<T>(fn: () => Promise<T>, deps: DependencyList = []) {
     fn()
       .then((data) => {
         if (!cache.has(fn)) cache.set(fn, new Map());
-        cache.get(fn)!.set(keyOf(deps), data);
+        const perFn = cache.get(fn)!;
+        const key = keyOf(deps);
+        perFn.delete(key);
+        perFn.set(key, data);
+        // Keep only the newest few results: live pages reload every few seconds with a new
+        // version number, and an unbounded cache grew until phones ran out of memory.
+        while (perFn.size > 4) perFn.delete(perFn.keys().next().value!);
         if (!cancelled) setState({ status: "success", data, error: null });
       })
       .catch((err: unknown) => {

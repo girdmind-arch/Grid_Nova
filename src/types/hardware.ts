@@ -47,8 +47,17 @@ export interface HardwareState {
     firmware: string | null;
     source: SourceName | "none" | null;
     loads: Record<string, boolean>;
-    readings: { adapter: RigReading | null; battery: RigReading | null };
-    health: { ina219Adapter: string; ina219Battery: string; muxInterlock: string } | null;
+    readings: { adapter: RigReading | null; battery: RigReading | null; output?: RigReading | null };
+    /** Adapter sense (voltage divider): present = the wall adapter is supplying (debounced). */
+    adapter?: { present: boolean | null; senseV: number | null; sensed: boolean };
+    /** "output": one INA219 after the relay (recommended build); "per-source": one per source. */
+    sensorLayout?: "output" | "per-source" | null;
+    branches?: string[];
+    /** Branch currents learned from this rig's own readings. */
+    model?: RigModel;
+    /** What the learned model expects the rig to draw in its current state (A). */
+    predictedCurrentA?: number | null;
+    health: Partial<Record<"ina219Adapter" | "ina219Battery" | "ina219Output" | "adapterSense" | "muxInterlock", string | null>> | null;
     warnings: string[];
     stateOfCharge: { status: "unknown"; socPct: null; reason: string };
   };
@@ -57,6 +66,16 @@ export interface HardwareState {
     scenarios: Record<string, { hardware: HardwareHonesty; approval: boolean; summary: string }>;
     loads: { name: string; essential: boolean }[];
   };
+  events?: { at: string; level: "info" | "warning" | "error"; text: string }[];
+  limits?: { freshS: number; offlineAfterS: number; armMaxMin: number; commandTtlS: number; keepAliveA?: number; tripA?: number; supplyLostV?: number };
+}
+
+export interface RigModel {
+  baseMa: number;
+  branchMa: Record<string, number>;
+  samples: number;
+  /** True once the readings have seen enough on/off combinations to tell the branches apart. */
+  confident: boolean;
 }
 
 export type DispatchOutcome =

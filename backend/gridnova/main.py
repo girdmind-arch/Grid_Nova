@@ -56,6 +56,7 @@ def _agent_loop():
                 logging.getLogger("gridnova.agents").info("control mode reset to AI after %.0f min", MODE_TTL_S / 60)
             orchestrator.tick()
             hw.service.housekeeping()  # offline devices, expired commands, arming timeouts
+            process_rig_events()  # in case a reading arrived while a request was busy
         except Exception:  # keep the loop alive; the error is in the logs
             logging.getLogger("gridnova.agents").exception("agent tick failed")
 
@@ -179,6 +180,8 @@ def grid_state() -> dict:
         "zones": zones,
         "flows": flows,
         "activeFault": None if not fault else {
+            "origin": fault.origin,
+            **({"note": fault.note} if fault.note else {}),
             "type": fault.type,
             "severity": fault.severity,
             "durationMin": fault.duration_min,
@@ -233,9 +236,9 @@ class LocationBody(BaseModel):
     lon: float = Field(ge=68, le=97.5)  # India's longitude range
 
 
-def _hardware_plan(type_: str, severity: int, incident_id: str) -> dict:
+def _hardware_plan(type_: str, severity: int, incident_id: str, auto_transfer: bool = False) -> dict:
     try:
-        return hw.service.plan_for_scenario(type_, severity, incident_id)
+        return hw.service.plan_for_scenario(type_, severity, incident_id, auto_transfer=auto_transfer)
     except Exception:
         logging.getLogger("gridnova.hardware").exception("hardware plan failed; simulation only")
         return {"dataSource": "simulation", "outcome": "simulated_only", "physicallyPerformed": False,
@@ -300,12 +303,58 @@ def inject(req: FaultRequest):
 
 @app.post("/api/scenarios/clear")
 def clear():
+    _clear_scenario()
+    return JSONResponse(None)
+
+
+def _clear_scenario() -> None:
     grid.clear_fault()
     try:
         hw.service.release_scenario()
     except Exception:  # the simulation must never depend on the rig
         logging.getLogger("gridnova.hardware").exception("could not release the hardware scenario")
-    return JSONResponse(None)
+
+
+RIG_OUTAGE_SEVERITY = 3
+
+
+def process_rig_events() -> list[dict]:
+    """Physical events on the tabletop rig drive the demo (hardware demo mode only, see hardware.py).
+
+    adapter unplugged -> the campus grid outage starts (origin "rig"), the rig moves to the power bank at once
+                         if armed, and the agents plan the response; shedding waits for the operator.
+    adapter back      -> a rig-started outage ends and the rig is restored (adapter, branches back on).
+    """
+    log = logging.getLogger("gridnova.hardware")
+    handled = []
+    for ev in hw.service.pop_rig_events():
+        try:
+            if ev["type"] == "adapter_lost":
+                if grid.fault and grid.fault.type == "grid_outage":
+                    continue  # already in an outage
+                if grid.fault:
+                    _clear_scenario()  # a real event replaces a practice scenario
+                bits = []
+                if ev.get("senseV") is not None:
+                    bits.append(f"adapter sense {ev['senseV']:.2f} V")
+                if ev.get("busV") is not None:
+                    bits.append(f"load rail {ev['busV']:.2f} V")
+                note = "wall adapter not supplying" + (f" ({', '.join(bits)})" if bits else "")
+                f = grid.start_fault("grid_outage", RIG_OUTAGE_SEVERITY, 60, None, origin="rig", note=note)
+                plan = _hardware_plan("grid_outage", RIG_OUTAGE_SEVERITY, f.incident_id, auto_transfer=True)
+                d = orchestrator.step()
+                d["hardware"] = plan
+                handled.append({"event": ev["type"], "incidentId": f.incident_id})
+            elif ev["type"] == "adapter_restored":
+                if grid.fault and grid.fault.origin == "rig":
+                    inc = grid.fault.incident_id
+                    _clear_scenario()
+                    handled.append({"event": ev["type"], "incidentId": inc})
+            else:
+                handled.append({"event": ev["type"]})  # shown in the rig's event log and warnings
+        except Exception:  # the device call must still get its answer
+            log.exception("could not act on rig event %s", ev)
+    return handled
 
 
 @app.post("/api/agents/orchestrator/step")
@@ -315,8 +364,11 @@ def orchestrator_step():
 
 @app.post("/api/agents/decisions/{decision_id}/approval")
 def approval(decision_id: str, body: ApprovalBody):
-    if body.decision == "modify" and body.optionId not in {"0.5", "0.6", "0.7"}:
-        raise HTTPException(400, "Pick one of the offered options.")
+    if body.decision == "modify":
+        d0 = next((d for d in orchestrator.decisions if d["id"] == decision_id), None)
+        offered = {o["id"] for o in ((d0 or {}).get("approval") or {}).get("modifyOptions", [])}
+        if body.optionId not in offered:
+            raise HTTPException(400, "Pick one of the offered options.")
     try:
         d = orchestrator.respond(decision_id, body.model_dump(exclude_none=True))
     except KeyError:
@@ -362,6 +414,12 @@ def results_whatif(body: WhatIfBody):
 @app.get("/api/results/runs")
 def results_runs():
     return build_run_history()
+
+
+@app.get("/api/learning")
+def learning():
+    """What the agents learned: trained models and their held-out scores, live learning, memory."""
+    return orchestrator.learning()
 
 
 @app.post("/api/goal")
@@ -475,7 +533,9 @@ def _device(request: Request, device_id: str | None, authorization: str | None) 
 @app.post("/api/hardware/device/telemetry")
 def device_telemetry(body: hw.Telemetry, request: Request, x_device_id: str | None = Header(None), authorization: str | None = Header(None)):
     did = _device(request, x_device_id, authorization)
-    return _hw(hw.service.ingest_telemetry, body, did)
+    out = _hw(hw.service.ingest_telemetry, body, did)
+    process_rig_events()
+    return out
 
 
 @app.get("/api/hardware/device/commands")

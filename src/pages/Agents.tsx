@@ -8,6 +8,7 @@ import { useScenarioStore } from "@/store/scenarioStore";
 import { Badge, Button, Card, ErrorState, PageHeader, Skeleton } from "@/components/ui";
 import { AgentCard } from "@/components/agents/AgentCard";
 import { ThoughtTrace } from "@/components/agents/ThoughtTrace";
+import { LearningPanel } from "@/components/agents/LearningPanel";
 import { useLiveAgents } from "@/components/agents/useLiveAgents";
 import { formatTime } from "@/utils/format";
 
@@ -41,7 +42,7 @@ export default function Agents() {
 
   return (
     <>
-      <PageHeader title="Agents" description="The seven agents and what each one is doing right now." />
+      <PageHeader title="Agents" description="The seven agents, what each one is doing right now, and what they have learned." />
 
       <Card variant="hero" padding="lg">
         <Badge tone="onHero" size="sm" dot pulse={phase !== "idle" && phase !== "stable"}>
@@ -79,6 +80,8 @@ export default function Agents() {
           ? agents.map((a) => <AgentCard key={a.id} agent={a} />)
           : status !== "error" && Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-64" />)}
       </div>
+
+      <LearningPanel className="mt-6" />
 
       {/* Folded away: the full reasoning behind every decision so far. */}
       <details id="decisions" className="group mt-8 max-w-3xl rounded-lg border border-border bg-surface shadow-sm">

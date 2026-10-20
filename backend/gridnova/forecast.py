@@ -1,7 +1,8 @@
 """The Forecaster: the next 12 hours of demand, solar, temperature and tariff, plus events.
 
-Solar and temperature come from the live weather forecast (Open-Meteo); demand
-comes from the campus load model under that weather and the agents' plan.
+Solar and temperature come from the live weather forecast (Open-Meteo). Demand is predicted
+by the Forecaster's own neural network (ml/forecaster.py), trained on simulated campus history
+and updated online from the meters; the first point is the measured demand now.
 """
 
 from __future__ import annotations
@@ -27,12 +28,22 @@ def build_forecast(grid: LiveGrid) -> dict:
     def solar_at(h: float) -> float:
         return cond.solar_and_temp(h)[0] * cond.solar_factor
 
+    from .ml import runtime
+    from .ml.forecaster import demand_forecast
+
+    now_kw = grid.snapshot().demand_kw
+    learned = dict(demand_forecast(runtime.FORECASTER, grid.conditions(None), now, now_kw))
+    if grid.fault and grid.fault.type == "heatwave":
+        # The model has never seen this scenario's extra load: scale by what the meters show now.
+        expected_now = sum(z.kw for z in zone_loads(now, grid.conditions(None), pol))
+        learned = {h: kw * now_kw / max(expected_now, 1.0) for h, kw in learned.items()}
     points = []
     for i in range(12):
         h = start + i
+        demand = now_kw if i == 0 else learned.get(float(h), sum(z.kw for z in zone_loads(h, cond, pol)))
         points.append({
             "time": iso(grid.at(h)),
-            "demandKw": round(sum(z.kw for z in zone_loads(h, cond, pol))),
+            "demandKw": round(demand),
             "solarKw": round(solar_at(h)),
             "tariffInr": cond.rate(h),
             "temperatureC": round(cond.solar_and_temp(h)[1], 1),
@@ -69,11 +80,12 @@ def build_forecast(grid: LiveGrid) -> dict:
             break
         t += step
 
+    mae = round(runtime.METRICS.get("forecaster", {}).get("maeKw", 0)) or "?"
     # Demand peak in the window.
     peak = max(points, key=lambda p: p["demandKw"])
     if peak["demandKw"] > points[0]["demandKw"] + 20:
         events.append({"id": "ev-peak", "time": peak["time"], "title": "Campus demand peaks",
-                       "detail": f"Forecast {peak['demandKw']:,} kW (±4%).", "kind": "peak"})
+                       "detail": f"Forecast {peak['demandKw']:,} kW (±{mae} kW, learned model).", "kind": "peak"})
 
     # Weather worth knowing about: the hottest hour and heavy cloud during daylight.
     hottest = max(points, key=lambda p: p["temperatureC"])
@@ -95,4 +107,9 @@ def build_forecast(grid: LiveGrid) -> dict:
                        "detail": f"About {_hhmm(end)}, based on the scenario duration.", "kind": "weather"})
 
     events.sort(key=lambda e: e["time"])
-    return {"generatedAt": iso(grid.at(now)), "horizonHours": 12, "points": points, "events": events}
+    model = None
+    if runtime.FORECASTER is not None:
+        f = runtime.METRICS.get("forecaster", {})
+        model = {"name": "GridNova Forecaster (neural network)", "maeKw": f.get("maeKw"),
+                 "baselineMaeKw": f.get("baselineMaeKw", {}).get("typicalDayProfile"), "onlineUpdates": runtime.FORECASTER.online_updates}
+    return {"generatedAt": iso(grid.at(now)), "horizonHours": 12, "points": points, "events": events, "model": model}

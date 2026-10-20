@@ -20,18 +20,29 @@ PASTE THE ROOT CERTIFICATE HERE
 -----END CERTIFICATE-----
 )EOF_CA";
 
-// ---- Pins: EXAMPLES ONLY. Check every one against YOUR wiring before powering anything. ----
-// All outputs need an external 10k pull-down so every source and load is OFF while the ESP32 boots or resets.
-#define PIN_SRC_ADAPTER_EN    25  // enable of the adapter-side switch of the source selector
-#define PIN_SRC_POWERBANK_EN  26  // enable of the power-bank-side switch of the source selector
-#define PIN_LOAD_CRITICAL     16  // LED branch drivers (logic-level MOSFET gates), low-voltage only
+// ---- Pins for the recommended parts list (see hardware/README.md). Check every one against YOUR wiring. ----
+// Source selector: ONE 5 V SPDT relay module. Relay OFF (de-energised) = NC contact = wall adapter.
+//                  Relay ON = NO contact = power bank. COM goes to the INA219's VIN+.
+#define PIN_RELAY             25
+// Most relay modules switch ON when IN is pulled LOW ("active low"). Measure yours with a multimeter:
+// set to 1 if the relay clicks ON with IN at 0 V, 0 if it clicks ON with IN at 3.3 V.
+#define RELAY_ACTIVE_LOW      1
+
+// LED branches: logic-level MOSFET load-switch modules (SIG pin), each with a 10 kΩ pull-down to GND.
+#define PIN_LOAD_CRITICAL     16
 #define PIN_LOAD_HOSTEL       17
 #define PIN_LOAD_LIBRARY      18
-#define PIN_LOAD_EXTRA        19
-#define PIN_ESTOP_BUTTON       4  // normally-open button to GND, internal pull-up, pressed = stop
+
+// Emergency-stop button: normally-open, between this pin and GND (internal pull-up). Pressed = stop.
+#define PIN_ESTOP_BUTTON       4
+
+// INA219 on the switched output (after the relay), I2C.
 #define PIN_SDA               21
 #define PIN_SCL               22
+#define INA_ADDR_OUTPUT       0x40   // A0/A1 pads open
 
-// INA219 I2C addresses (set by the A0/A1 solder pads on each module).
-#define INA_ADDR_ADAPTER      0x40
-#define INA_ADDR_BATTERY      0x41
+// Adapter sense: a voltage divider from the adapter's +5 V (after its fuse) to this input:
+//   adapter +5 V --[20 kΩ]--+--[10 kΩ]-- GND        +  --> GPIO 34 (input-only ADC pin)
+// 5 V becomes 1.67 V at the pin. Set to -1 if you did not fit the divider.
+#define PIN_ADAPTER_SENSE     34
+#define SENSE_DIVIDER_RATIO   3.0f   // (20 k + 10 k) / 10 k

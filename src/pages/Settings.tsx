@@ -35,7 +35,7 @@ const TABS = [
     value: "hardware",
     label: "Hardware",
     icon: Cpu,
-    description: "Optional tabletop ESP32 demo. The campus stays simulated; the rig shows real low-voltage readings beside it.",
+    description: "Optional tabletop ESP32 rig. Its real low-voltage readings drive the demo: unplug its adapter and the campus goes into an outage.",
     content: <HardwareDemo />,
   },
   {
@@ -73,13 +73,16 @@ const TABS = [
 ];
 
 export default function Settings() {
+  // Links such as /app/settings#hardware open that tab.
+  const hash = typeof window !== "undefined" ? window.location.hash.slice(1) : "";
+  const initial = TABS.some((t) => t.value === hash) ? hash : "goal";
   return (
     <>
       <PageHeader title="Settings" description="Who is in control, what GridNova aims for, and how the app looks." />
 
       <ControlModeHero />
 
-      <Tabs defaultValue="goal" className="mt-6">
+      <Tabs defaultValue={initial} className="mt-6">
         <TabsList aria-label="Settings">
           {TABS.map((t) => {
             const Icon = t.icon;

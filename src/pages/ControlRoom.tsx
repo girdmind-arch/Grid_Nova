@@ -9,6 +9,7 @@ import { useScenarioStore } from "@/store/scenarioStore";
 import { Badge, Card, ErrorState, IconTile, Modal, PageHeader, Skeleton } from "@/components/ui";
 import { GridLegend } from "@/components/grid/GridDiagram";
 import { GridView } from "@/components/grid/GridView";
+import { RigLiveCard } from "@/components/hardware/RigLiveCard";
 import { ScenarioBanner } from "@/components/scenarios/ScenarioBanner";
 import { SituationHero } from "@/components/control-room/SituationHero";
 import { StatStrip } from "@/components/control-room/StatStrip";
@@ -71,6 +72,8 @@ export default function ControlRoom() {
           </div>
         )}
       </div>
+
+      <RigLiveCard className="mt-4 min-w-0" />
 
       <Card className="mt-4 min-w-0">
         <div className="mb-5 flex items-center gap-2.5">

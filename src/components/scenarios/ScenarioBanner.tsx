@@ -85,6 +85,7 @@ export function ScenarioBanner({ className }: { className?: string }) {
         <div className="min-w-0">
           <p className="text-[15px] font-semibold text-fg">
             {meta.title} · {active.incidentId}
+            {active.origin === "rig" && <span className="ml-2 text-[13px] font-medium text-fg-muted">started by the rig: its wall adapter was unplugged</span>}
             {outcome && outcome.run > 1 && stable && <span className="font-medium text-fg-muted"> · run {outcome.run}</span>}
           </p>
           <p className="mt-0.5 text-sm text-fg-muted">

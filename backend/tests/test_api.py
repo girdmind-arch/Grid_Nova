@@ -53,14 +53,19 @@ def test_line_failure_reroutes_within_feeder_limit(client):
 
 
 def test_replay_is_faster_and_reuses_the_lesson(client):
-    times = []
+    from gridnova.main import orchestrator
+
+    orchestrator.plans.entries.clear()  # start with an empty Critic memory
+    times, runs = [], []
     for _ in range(2):
         client.post("/api/scenarios/clear")
         client.post("/api/scenarios/inject", json={"type": "cloud_cover", "severity": 3, "durationMin": 30})
         d = client.post("/api/agents/orchestrator/step").json()
         times.append(d["outcome"]["recoveryMin"])
-    assert times[1] < times[0]
-    assert d["outcome"].get("lessonApplied")
+        runs.append(d["search"]["twinRuns"])
+    # Run 2 recalls run 1's plan, so the search needs fewer twin runs: a faster response.
+    assert runs[1] < runs[0] and times[1] < times[0]
+    assert d["outcome"].get("lessonApplied") and d["usedMemory"]
 
 
 def test_grid_outage_waits_for_approval(client):
@@ -68,7 +73,7 @@ def test_grid_outage_waits_for_approval(client):
     d = client.post("/api/agents/orchestrator/step").json()
     assert d["approval"]["status"] == "pending"
     assert client.get("/api/grid/state").json()["activeFault"]["mitigated"] is False
-    d2 = client.post(f"/api/agents/decisions/{d['id']}/approval", json={"decision": "modify", "optionId": "0.5"}).json()
+    d2 = client.post(f"/api/agents/decisions/{d['id']}/approval", json={"decision": "modify", "optionId": d["approval"]["modifyOptions"][0]["id"]}).json()
     assert d2["approval"]["status"] == "modified"
     g = client.get("/api/grid/state").json()
     assert g["gridImportKw"] == 0 and g["activeFault"]["mitigated"] is True

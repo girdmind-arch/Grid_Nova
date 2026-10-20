@@ -7,7 +7,7 @@ export const AGENTS: Agent[] = [
   {
     id: "orchestrator",
     name: "Orchestrator",
-    role: "Runs the decision loop and explains every choice in plain language.",
+    role: "Runs the decision loop, scores plans for your goal and explains every choice with the computed numbers.",
     status: "idle",
     lastAction: "Chose Plan B for the evening peak.",
     tools: ["read_grid_state", "ask_forecaster", "request_plans", "submit_to_guardrail", "dispatch_action", "explain"],
@@ -15,10 +15,10 @@ export const AGENTS: Agent[] = [
   {
     id: "forecaster",
     name: "Forecaster",
-    role: "Predicts campus demand and solar output for the next 12 hours.",
+    role: "A neural network trained on simulated campus history; predicts demand for the next 12 hours and keeps learning from the meters.",
     status: "idle",
     lastAction: "Forecast a 1,510 kW peak at 19:00 (±4%).",
-    tools: ["demand_forecast", "solar_forecast", "weather_feed"],
+    tools: ["learned_demand_forecast", "solar_forecast", "weather_feed", "learn_from_meters"],
   },
   {
     id: "zone",
@@ -31,10 +31,10 @@ export const AGENTS: Agent[] = [
   {
     id: "planner",
     name: "Planner / Simulator",
-    role: "Builds Plan A and Plan B and tests both in the digital twin first.",
+    role: "Invents plans by searching the available levers in the digital twin; one option is its own reinforcement-learning battery policy.",
     status: "idle",
-    lastAction: "Simulated 2 plans over the next 5 hours.",
-    tools: ["build_plan", "simulate_in_twin", "compare_plans"],
+    lastAction: "Searched 30 plans in the twin over the next 5 hours.",
+    tools: ["cross_entropy_search", "simulate_in_twin", "rl_battery_policy", "compare_plans"],
   },
   {
     id: "fault",
@@ -47,10 +47,10 @@ export const AGENTS: Agent[] = [
   {
     id: "critic",
     name: "Critic",
-    role: "Scores every outcome and writes lessons to memory.",
+    role: "Remembers which plan worked in which situation and seeds later searches with it.",
     status: "idle",
     lastAction: "Projected ₹4,180 saving tonight vs. baseline.",
-    tools: ["score_outcome", "write_lesson", "search_memory"],
+    tools: ["score_outcome", "store_experience", "recall_similar_situation"],
   },
   {
     id: "guardrail",

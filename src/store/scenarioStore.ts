@@ -18,6 +18,8 @@ export type ScenarioPhase = "idle" | "responding" | "awaiting-approval" | "stabl
 export type ScenarioStage = "fault" | "agents" | null;
 interface ActiveScenario extends FaultRequest {
   incidentId: string;
+  /** "rig": started by the tabletop rig (its wall adapter was unplugged), not from this page. */
+  origin?: "website" | "rig";
   /** Real-time ms, used for the recovery timer. */
   startedAtMs: number;
   stabilisedAtMs: number | null;
@@ -134,8 +136,11 @@ export const useScenarioStore = create<ScenarioState>((set, get) => ({
     // The backend owns the trace: the agents re-plan on their own, so pick up new decisions.
     if (get().phase === "responding") return;
     try {
-      const decisions = await getThoughtTrace();
-      if (get().phase !== "responding") set({ decisions, traceStatus: "ready" });
+      const [decisions, grid] = await Promise.all([getThoughtTrace(), getGridState().catch(() => null)]);
+      if (grid && get().phase !== "responding") adoptServerScenario(grid, decisions, set, get);
+      // Same trace as last time: keep the old array so nothing re-renders.
+      if (get().phase !== "responding" && JSON.stringify(decisions) !== JSON.stringify(get().decisions)) set({ decisions, traceStatus: "ready" });
+      else if (get().traceStatus !== "ready") set({ traceStatus: "ready" });
     } catch {
       /* keep the last trace; the grid view shows the connection problem */
     }
@@ -147,6 +152,7 @@ export const useScenarioStore = create<ScenarioState>((set, get) => ({
     const req: FaultRequest = { type, ...DEFAULTS, ...opts };
     const token = ++runToken;
     set({ lastRequest: req });
+    startingLocally = true;
     try {
       const fault = await injectFault(req);
       // Freeze the broken grid so the fault is visible before the agents fix it.
@@ -163,6 +169,7 @@ export const useScenarioStore = create<ScenarioState>((set, get) => ({
         active: { ...req, incidentId: fault.incidentId, startedAtMs: Date.now(), stabilisedAtMs: null },
         gridVersion: s.gridVersion + 1,
       }));
+      startingLocally = false;
       play("alarm");
       // Scenarios demo the agents, so they take control back from Manual / Fallback.
       if (useAppStore.getState().mode !== "ai") {
@@ -196,6 +203,7 @@ export const useScenarioStore = create<ScenarioState>((set, get) => ({
         toast({ title: "Approval needed", description: decision.approval!.request, tone: "warning" });
       } else play("resolve");
     } catch {
+      startingLocally = false;
       if (token !== runToken) return;
       set({ thinking: false, phase: "idle", stage: null, faultSnapshot: null, liveDecision: null });
       useAppStore.getState().setMode("fallback");
@@ -237,7 +245,7 @@ export const useScenarioStore = create<ScenarioState>((set, get) => ({
     runToken++;
     tourToken++;
     set({ touring: false });
-    await clearScenario();
+    await clearLocally();
     set((s) => ({ ...IDLE, gridVersion: s.gridVersion + 1 }));
     useAppStore.getState().setMode("ai");
     toast({ title: "Scenario ended", description: "The grid is back to normal operation.", tone: "neutral" });
@@ -247,7 +255,7 @@ export const useScenarioStore = create<ScenarioState>((set, get) => ({
     const req = get().lastRequest;
     if (!req) return;
     // Back to normal first, then the same fault again. The agents remember the last run.
-    await clearScenario();
+    await clearLocally();
     set((s) => ({ ...IDLE, gridVersion: s.gridVersion + 1 }));
     await get().run(req.type, req);
   },
@@ -255,7 +263,7 @@ export const useScenarioStore = create<ScenarioState>((set, get) => ({
   startFresh: async (type, opts) => {
     if (get().phase === "responding") return;
     if (get().active) {
-      await clearScenario();
+      await clearLocally();
       set((s) => ({ ...IDLE, gridVersion: s.gridVersion + 1 }));
     }
     await get().run(type, opts);
@@ -286,6 +294,55 @@ export const useScenarioStore = create<ScenarioState>((set, get) => ({
   },
 }));
 
+/**
+ * Scenarios can start without this page: the tabletop rig reports its wall adapter unplugged, or
+ * another operator starts one. Pick them up from the live grid, and drop them when they end there.
+ */
+function adoptServerScenario(grid: GridState, decisions: Decision[], set: Set, get: () => ScenarioState) {
+  if (startingLocally) return; // this page is starting one right now
+  const fault = grid.activeFault;
+  const active = get().active;
+  if (fault && active?.incidentId !== fault.incidentId) {
+    const d = decisions.find((x) => x.incidentId === fault.incidentId);
+    if (!d) return; // the agents have not written their decision yet: next pulse
+    const pending = d.approval?.status === "pending";
+    runToken++;
+    set((s) => ({
+      phase: pending ? "awaiting-approval" : "stable",
+      stage: null,
+      thinking: false,
+      liveDecision: null,
+      revealed: 0,
+      faultSnapshot: null,
+      hardware: d.hardware ?? null,
+      active: {
+        type: fault.type, severity: fault.severity, durationMin: fault.durationMin, targetZoneId: fault.targetZoneId,
+        incidentId: fault.incidentId, origin: fault.origin, startedAtMs: Date.now(), stabilisedAtMs: pending ? null : Date.now(),
+      },
+      decisions,
+      history: d.outcome ? { ...s.history, [fault.type]: [...(s.history[fault.type] ?? []), d.outcome] } : s.history,
+      sessionIncidents: [incidentFrom(fault.type, d), ...s.sessionIncidents.filter((i) => i.id !== fault.incidentId)],
+      gridVersion: s.gridVersion + 1,
+    }));
+    play("alarm");
+    toast(
+      fault.origin === "rig"
+        ? { title: "The rig lost its wall adapter", description: `Grid outage started on the campus (${fault.incidentId}). ${pending ? "The agents' plan needs your approval." : "The agents responded."}`, tone: "warning" }
+        : { title: `${fault.incidentId} started elsewhere`, description: "Another operator started a scenario. Showing it here.", tone: "ai" },
+    );
+    return;
+  }
+  if (!fault && active && get().phase !== "responding") {
+    runToken++;
+    set((s) => ({ ...IDLE, gridVersion: s.gridVersion + 1 }));
+    toast(
+      active.origin === "rig"
+        ? { title: "The rig's wall adapter is back", description: "The outage ended and the rig is being restored.", tone: "success" }
+        : { title: "Scenario ended", description: "It was ended from another screen.", tone: "neutral" },
+    );
+  }
+}
+
 /** Presentation order: easy wins first, a replay to show learning, then the outage that needs a human. */
 const TOUR: { type: FaultType; severity: number }[] = [
   { type: "cloud_cover", severity: 3 },
@@ -304,6 +361,18 @@ const IDLE = { phase: "idle" as const, active: null, thinking: false, stage: nul
 
 /** Bumped by every new run or end, so an older playback stops quietly. */
 let runToken = 0;
+/** True between this page asking for a scenario and showing it (so the pulse does not "adopt" it). */
+let startingLocally = false;
+
+/** Ends the server's scenario from this page, without the pulse reporting it as ended elsewhere. */
+async function clearLocally() {
+  startingLocally = true;
+  try {
+    await clearScenario();
+  } finally {
+    startingLocally = false;
+  }
+}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const reducedMotion = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;

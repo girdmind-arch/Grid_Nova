@@ -28,5 +28,7 @@ export const useAppStore = create<AppState>((set) => ({
   goalInterpretation: null,
   setGoal: (goal, goalInterpretation) => set({ goal, goalInterpretation }),
   environment: null,
-  setEnvironment: (environment) => set({ environment }),
+  // Called every few seconds: only notify the UI when something actually changed.
+  setEnvironment: (environment) =>
+    set((s) => (JSON.stringify(s.environment) === JSON.stringify(environment) ? s : { environment })),
 }));

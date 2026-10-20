@@ -1,16 +1,24 @@
-// GridNova tabletop rig: ESP32-WROOM-32 firmware example (Arduino core for ESP32 3.x).
+// GridNova tabletop rig: ESP32-WROOM-32 firmware (Arduino core for ESP32 3.x), recommended parts list.
 //
-// What it does: every 2 s it reports measured volts/amps from two INA219 modules, the selected source and the
-// LED branch states to the GridNova server over HTTPS, then asks for commands and carries out the few it knows.
+// Hardware it expects (hardware/README.md has the wiring):
+//   one 5 V SPDT relay as the source selector (OFF = wall adapter on NC, ON = power bank on NO),
+//   one INA219 on the relay's COM output (it measures whatever source is selected),
+//   an adapter-sense voltage divider on GPIO 34 (optional, strongly recommended),
+//   three logic-level MOSFET load switches driving 5 V LED modules: critical, hostel, library,
+//   a normally-open emergency-stop button.
+//
+// Every 2 s it reports measured volts/amps, the relay position, the adapter sense and the branch states to the
+// GridNova server over verified HTTPS, then asks for commands and carries out the few it knows.
+//
 // What it never does: run a command it does not recognise, switch the critical branch off by command, wait for
 // the network before turning loads off in an emergency, or report a value it could not measure.
 //
-// Read hardware/README.md first. The source selector MUST be a power-mux arrangement that cannot connect the
-// adapter and the power bank together on its own (break-before-make in hardware). This code adds dead time and
-// a software interlock, but software alone is not a safety device.
+// The one thing it does on its own: while the server says the rig is ARMED, if the adapter sense drops it moves
+// the relay to the power bank within half a second (an automatic transfer switch), because waiting for the
+// network would leave the critical branch dark. Going back to the adapter is always a server command.
 //
 // Libraries: ArduinoJson (7.x), Adafruit INA219. Board: "ESP32 Dev Module".
-// NOT compiled or run in the environment that wrote it: build it, then test with loads disconnected first.
+// NOT compiled or run in the environment that wrote it: build it, then test with the loads disconnected first.
 
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -21,31 +29,34 @@
 #include <Adafruit_INA219.h>
 #include "config.h"
 
-#define FIRMWARE_VERSION "0.1.0"
+#define FIRMWARE_VERSION "0.2.0"
 
 // ---- timing and limits (keep in step with backend/gridnova/hardware.py) ----
 static const uint32_t LOOP_MS = 2000;
-static const uint32_t FAILSAFE_MS = 30000;      // no good server exchange for this long: shed non-essential loads
-static const uint32_t SOURCE_DEAD_MS = 100;     // both source switches off for this long while changing over
-static const uint32_t SOURCE_MIN_GAP_MS = 5000; // never switch the selector twice within this time
-static const float MAX_V = 6.0f, MIN_A = -0.1f, MAX_A = 1.9f;  // INA219 on the 32V/2A calibration: >1.9 A is out of range
-static const float PARALLEL_A = 0.25f;          // current on the NON-selected side = parallel connection suspected
+static const uint32_t FAILSAFE_MS = 30000;       // no good server exchange for this long: non-essential loads off
+static const uint32_t SOURCE_MIN_GAP_MS = 5000;  // never switch the relay twice within this time (contacts settle)
+static const uint32_t TRANSFER_CONFIRM_MS = 300; // adapter sense must stay low this long before a local transfer
+static const float MAX_V = 6.0f, MIN_A = -0.1f, MAX_A = 0.39f;  // INA219 on the 16 V / 400 mA calibration
+static const float TRIP_A = 0.35f;               // local over-current: everything off at once (server trips at 1.0 A
+                                                 // for other calibrations; with three LED modules you draw ~0.06 A)
+static const float SENSE_PRESENT_V = 4.3f;       // adapter sense at or above this = adapter supplying
 
 // ---- fixed vocabulary: the ONLY things a command can name ----
-enum Load { L_CRITICAL, L_HOSTEL, L_LIBRARY, L_EXTRA, L_COUNT };
-static const char *LOAD_NAME[L_COUNT] = {"critical", "hostel", "library", "extra"};
-static const uint8_t LOAD_PIN[L_COUNT] = {PIN_LOAD_CRITICAL, PIN_LOAD_HOSTEL, PIN_LOAD_LIBRARY, PIN_LOAD_EXTRA};
-enum Source { S_NONE, S_ADAPTER, S_POWERBANK };
-static const char *SOURCE_NAME[] = {"none", "adapter", "powerbank"};
+enum Load { L_CRITICAL, L_HOSTEL, L_LIBRARY, L_COUNT };
+static const char *LOAD_NAME[L_COUNT] = {"critical", "hostel", "library"};
+static const uint8_t LOAD_PIN[L_COUNT] = {PIN_LOAD_CRITICAL, PIN_LOAD_HOSTEL, PIN_LOAD_LIBRARY};
+enum Source { S_ADAPTER, S_POWERBANK };
+static const char *SOURCE_NAME[] = {"adapter", "powerbank"};
 
-static Adafruit_INA219 inaAdapter(INA_ADDR_ADAPTER), inaBattery(INA_ADDR_BATTERY);
-static bool loadOn[L_COUNT] = {false, false, false, false};
-static Source source = S_NONE;
+static Adafruit_INA219 ina(INA_ADDR_OUTPUT);
+static bool loadOn[L_COUNT] = {false, false, false};
+static Source source = S_ADAPTER;  // relay OFF at power-up = NC = adapter
 static bool estopLatched = false;
-static bool controlArmed = false, controlEstop = false;  // last flags from the server
+static bool controlArmed = false, controlEstop = false, autoTransfer = false;  // last flags from the server
 static bool firstContact = false;
-static uint32_t lastGoodMs = 0, lastSourceMs = 0, lastLoopMs = 0, seqNo = 0, parallelHits = 0;
+static uint32_t lastGoodMs = 0, lastSourceMs = 0, lastLoopMs = 0, seqNo = 0, senseLowSince = 0;
 static char bootId[17];
+struct Reading { bool ok; float v, a; };  // declared before any function (Arduino generates prototypes)
 
 // ---------------------------------------------------------------- outputs
 static void setLoad(Load l, bool on) {
@@ -57,32 +68,29 @@ static void allLoadsOff() {
   for (int i = 0; i < L_COUNT; i++) setLoad((Load)i, false);
 }
 
-static void sourcesOff() {
-  digitalWrite(PIN_SRC_ADAPTER_EN, LOW);
-  digitalWrite(PIN_SRC_POWERBANK_EN, LOW);
-  source = S_NONE;
+static void relayWrite(bool on) {
+  // on = power bank (NO contact). Respects modules that switch on with a LOW input.
+  digitalWrite(PIN_RELAY, (on ^ (RELAY_ACTIVE_LOW == 1)) ? HIGH : LOW);
 }
 
-// Break-before-make: both switches off, wait, then enable exactly one. Returns false if refused.
+// A changeover relay is break-before-make by construction: COM leaves one contact before touching the other.
+// Returns false if refused (switched too recently).
 static bool selectSource(Source s) {
   if (s == source) return true;
-  if (millis() - lastSourceMs < SOURCE_MIN_GAP_MS && lastSourceMs != 0) return false;
-  sourcesOff();
-  delay(SOURCE_DEAD_MS);
-  digitalWrite(s == S_ADAPTER ? PIN_SRC_ADAPTER_EN : PIN_SRC_POWERBANK_EN, HIGH);
+  if (lastSourceMs != 0 && millis() - lastSourceMs < SOURCE_MIN_GAP_MS) return false;
+  relayWrite(s == S_POWERBANK);
   source = s;
   lastSourceMs = millis();
   return true;
 }
 
-// Emergency stop: every load off, selector left where it is (with no load there is nothing to protect).
+// Emergency stop: every load off. The relay stays where it is (with no load there is nothing to protect).
 static void latchEstop() {
   allLoadsOff();
   estopLatched = true;
 }
 
 // ---------------------------------------------------------------- sensors
-struct Reading { bool ok; float v, a; };
 
 static bool present(uint8_t addr) {
   Wire.beginTransmission(addr);
@@ -90,13 +98,22 @@ static bool present(uint8_t addr) {
 }
 
 // "ok" only when the module answers AND the numbers are physically sensible. Otherwise no value is sent.
-static const char *readSensor(Adafruit_INA219 &ina, uint8_t addr, Reading &r) {
+static const char *readOutput(Reading &r) {
   r.ok = false;
-  if (!present(addr)) return "missing";
-  float v = ina.getBusVoltage_V(), a = ina.getCurrent_mA() / 1000.0f;
+  if (!present(INA_ADDR_OUTPUT)) return "missing";
+  float v = ina.getBusVoltage_V();  // the load rail (VIN- to GND)
+  float a = ina.getCurrent_mA() / 1000.0f;
   if (isnan(v) || isnan(a) || v < 0 || v > MAX_V || a < MIN_A || a > MAX_A) return "fault";
   r.ok = true; r.v = v; r.a = a;
   return "ok";
+}
+
+// Adapter sense: averaged ADC reading through the divider. Returns a negative value when not fitted.
+static float senseVolts() {
+  if (PIN_ADAPTER_SENSE < 0) return -1.0f;
+  uint32_t mv = 0;
+  for (int i = 0; i < 8; i++) mv += analogReadMilliVolts(PIN_ADAPTER_SENSE);
+  return (mv / 8.0f) / 1000.0f * SENSE_DIVIDER_RATIO;
 }
 
 // ---------------------------------------------------------------- network
@@ -116,6 +133,13 @@ static int http(const char *method, const String &path, const String &body, Stri
 }
 
 static bool timeValid() { return time(nullptr) > 1700000000; }
+
+static void readControl(JsonDocument &d) {
+  controlArmed = d["control"]["armed"] | false;
+  controlEstop = d["control"]["estop"] | false;
+  autoTransfer = d["control"]["autoTransfer"] | false;
+  if (controlEstop && !estopLatched) latchEstop();
+}
 
 // ---------------------------------------------------------------- commands
 static void ack(const char *id, const char *result, const char *reason) {
@@ -149,10 +173,14 @@ static void runCommand(JsonObject c) {
 
   if (!strcmp(type, "select_source")) {
     const char *s = c["params"]["source"] | "";
-    Source want = !strcmp(s, "adapter") ? S_ADAPTER : !strcmp(s, "powerbank") ? S_POWERBANK : S_NONE;
-    if (want == S_NONE) return ack(id, "rejected", "unknown source");
+    if (strcmp(s, "adapter") && strcmp(s, "powerbank")) return ack(id, "rejected", "unknown source");
+    Source want = !strcmp(s, "adapter") ? S_ADAPTER : S_POWERBANK;
+    if (want == S_ADAPTER) {
+      float sv = senseVolts();
+      if (sv >= 0 && sv < SENSE_PRESENT_V) return ack(id, "rejected", "the adapter sense reads no voltage");
+    }
     bool switched = selectSource(want);  // called once: it moves hardware
-    return ack(id, switched ? "applied" : "rejected", switched ? nullptr : "selector changed too recently");
+    return ack(id, switched ? "applied" : "rejected", switched ? nullptr : "relay changed too recently");
   }
   if (!strcmp(type, "set_load")) {
     const char *name = c["params"]["load"] | "";
@@ -176,23 +204,18 @@ static void pollCommands() {
   JsonDocument d;
   if (deserializeJson(d, out)) return;
   lastGoodMs = millis();
-  controlArmed = d["control"]["armed"] | false;
-  controlEstop = d["control"]["estop"] | false;
-  if (controlEstop && !estopLatched) latchEstop();
+  readControl(d);
   for (JsonObject c : d["commands"].as<JsonArray>()) runCommand(c);
 }
 
 // ---------------------------------------------------------------- telemetry
 static bool sendTelemetry() {
-  Reading ra, rb;
-  const char *ha = readSensor(inaAdapter, INA_ADDR_ADAPTER, ra);
-  const char *hb = readSensor(inaBattery, INA_ADDR_BATTERY, rb);
+  Reading r;
+  const char *hOut = readOutput(r);
+  float sv = senseVolts();
 
-  // Software back-up to the hardware selector: current on the side that is NOT selected = a parallel path.
-  Reading &other = (source == S_ADAPTER) ? rb : ra;
-  if ((source == S_ADAPTER || source == S_POWERBANK) && other.ok && other.a > PARALLEL_A) {
-    if (++parallelHits >= 2) { sourcesOff(); latchEstop(); }
-  } else parallelHits = 0;
+  // Local over-current trip: a short or a wrong part. Does not wait for the server.
+  if (r.ok && r.a > TRIP_A && !estopLatched) latchEstop();
 
   JsonDocument d;
   d["deviceId"] = DEVICE_ID;
@@ -201,12 +224,12 @@ static bool sendTelemetry() {
   d["ts"] = (double)time(nullptr);
   d["firmware"] = FIRMWARE_VERSION;
   d["source"] = SOURCE_NAME[source];
-  if (ra.ok) { d["adapter"]["voltageV"] = ra.v; d["adapter"]["currentA"] = ra.a; }
-  if (rb.ok) { d["battery"]["voltageV"] = rb.v; d["battery"]["currentA"] = rb.a; }
+  if (r.ok) { d["output"]["voltageV"] = r.v; d["output"]["currentA"] = r.a; }
+  if (sv >= 0) { d["adapterSenseV"] = sv; d["adapterPresent"] = sv >= SENSE_PRESENT_V; }
   JsonObject l = d["loads"].to<JsonObject>();
   for (int i = 0; i < L_COUNT; i++) l[LOAD_NAME[i]] = loadOn[i];
-  d["health"]["ina219Adapter"] = ha;
-  d["health"]["ina219Battery"] = hb;
+  d["health"]["ina219Output"] = hOut;
+  if (sv >= 0) d["health"]["adapterSense"] = (sv <= MAX_V) ? "ok" : "fault";
   d["health"]["muxInterlock"] = "ok";
   d["estop"] = estopLatched;
   d["uptimeS"] = millis() / 1000;
@@ -214,23 +237,27 @@ static bool sendTelemetry() {
   String body, out;
   serializeJson(d, body);
   int code = http("POST", "/api/hardware/device/telemetry", body, out);
-  if (code == 200) lastGoodMs = millis();
+  if (code == 200) {
+    lastGoodMs = millis();
+    JsonDocument resp;
+    if (!deserializeJson(resp, out)) readControl(resp);
+  }
   return code == 200;
 }
 
 // ---------------------------------------------------------------- setup / loop
 void setup() {
-  // FIRST: everything off, before anything can fail.
+  // FIRST: everything off, relay released (adapter), before anything can fail.
   for (int i = 0; i < L_COUNT; i++) { pinMode(LOAD_PIN[i], OUTPUT); digitalWrite(LOAD_PIN[i], LOW); }
-  pinMode(PIN_SRC_ADAPTER_EN, OUTPUT); pinMode(PIN_SRC_POWERBANK_EN, OUTPUT);
-  sourcesOff();
+  pinMode(PIN_RELAY, OUTPUT);
+  relayWrite(false);
   pinMode(PIN_ESTOP_BUTTON, INPUT_PULLUP);
+  if (PIN_ADAPTER_SENSE >= 0) analogSetPinAttenuation(PIN_ADAPTER_SENSE, ADC_11db);
   Serial.begin(115200);
   snprintf(bootId, sizeof bootId, "%08x%08x", (unsigned)esp_random(), (unsigned)esp_random());
 
   Wire.begin(PIN_SDA, PIN_SCL);
-  if (present(INA_ADDR_ADAPTER)) { inaAdapter.begin(); inaAdapter.setCalibration_32V_2A(); }
-  if (present(INA_ADDR_BATTERY)) { inaBattery.begin(); inaBattery.setCalibration_32V_2A(); }
+  if (present(INA_ADDR_OUTPUT)) { ina.begin(); ina.setCalibration_16V_400mA(); }
 
   tls.setCACert(ROOT_CA);  // verified TLS only
   WiFi.mode(WIFI_STA);
@@ -243,9 +270,24 @@ void loop() {
   // The emergency-stop button works with or without Wi-Fi.
   if (digitalRead(PIN_ESTOP_BUTTON) == LOW && !estopLatched) latchEstop();
 
-  // Lost the server for too long: non-essential loads off. The source selector stays put.
+  // Automatic transfer (only while the server says armed): adapter gone -> power bank, within ~0.3 s.
+  if (autoTransfer && controlArmed && !estopLatched && source == S_ADAPTER) {
+    float sv = senseVolts();
+    if (sv >= 0 && sv < SENSE_PRESENT_V) {
+      if (!senseLowSince) senseLowSince = millis();
+      if (millis() - senseLowSince >= TRANSFER_CONFIRM_MS) {
+        lastSourceMs = 0;  // a lost supply is not a "too soon" switch
+        selectSource(S_POWERBANK);
+        senseLowSince = 0;
+      }
+    } else senseLowSince = 0;
+  }
+
+  // Lost the server for too long: non-essential loads off and no more automatic transfers. The relay stays put.
   if (firstContact && millis() - lastGoodMs > FAILSAFE_MS) {
     for (int i = 0; i < L_COUNT; i++) if (i != L_CRITICAL) setLoad((Load)i, false);
+    autoTransfer = false;
+    controlArmed = false;
   }
   if (millis() - lastLoopMs < LOOP_MS) return;
   lastLoopMs = millis();
@@ -253,10 +295,11 @@ void loop() {
 
   if (sendTelemetry()) {
     if (!firstContact && !estopLatched) {
-      // Boot defaults, only after the server answered and nothing is latched: adapter source, critical branch on.
+      // Boot defaults, only after the server answered and nothing is latched: adapter, every branch on
+      // (a normal campus evening). The agents shed or restore from there.
       firstContact = true;
       selectSource(S_ADAPTER);
-      setLoad(L_CRITICAL, true);
+      for (int i = 0; i < L_COUNT; i++) setLoad((Load)i, true);
     }
     pollCommands();
   }

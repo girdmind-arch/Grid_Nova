@@ -112,6 +112,8 @@ export interface Forecast {
   horizonHours: number;
   points: ForecastPoint[];
   events: ForecastEvent[];
+  /** The learned model behind the demand line (live backend only). */
+  model?: { name: string; maeKw: number; baselineMaeKw: number; onlineUpdates: number } | null;
 }
 
 // ---------- Faults / scenarios ----------
@@ -125,6 +127,9 @@ export interface FaultRequest {
 }
 
 export interface ActiveFault extends FaultRequest {
+  /** "rig": started by a physical event on the tabletop rig (e.g. its wall adapter was unplugged). */
+  origin?: "website" | "rig";
+  note?: string;
   incidentId: string;
   startedAt: ISODate;
   /** True once the agents' response has been applied to the grid. */

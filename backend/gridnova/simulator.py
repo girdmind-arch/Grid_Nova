@@ -68,6 +68,11 @@ class Policy:
     reroute_fraction: float | None = None  # line fault: share of the building restored via F2
     outage_hostel_level: float = 0.0  # grid outage: hostel power level (0 = off)
     reserve_floor_pct: float = c.BATTERY_FLOOR_PCT
+    # A learned battery controller (the Planner's RL policy): called every step with
+    # (hour, battery %, net load kW, today's highest import so far) and returns a battery
+    # setpoint in kW (+ discharge, - charge). When set, it replaces the rule-based dispatch;
+    # physical limits (floor, ceiling, inverter, contract limit) still apply in dispatch_setpoint().
+    controller: Callable[[float, float, float, float], float] | None = None
 
     @staticmethod
     def baseline() -> "Policy":
@@ -132,6 +137,28 @@ HVAC_KINDS = {"hostel", "library", "admin", "academic", "residence"}
 
 # What buildings would draw with nobody curtailing them (for the comfort score).
 REQUEST_POLICY = Policy(ai=True, night_charge_to_pct=None, reroute_fraction=1.0, outage_hostel_level=1.0)
+
+
+# Most a battery may charge at (kW): matches the rule-based overnight charging.
+CHARGE_MAX_KW = 400.0
+
+
+def dispatch_setpoint(setpoint_kw: float, soc_pct: float, net_kw: float, dt_h: float, cap_kwh: float, floor_pct: float) -> float:
+    """What the battery can actually do for a requested setpoint (+ discharge, - charge).
+
+    Shared by the simulator and the RL training environment, so the agent learns on exactly
+    the physics it is later run on: reserve floor, 90% ceiling, inverter rating, round-trip
+    losses, no export to the grid, and charging never pushes import over the contract limit.
+    """
+    if cap_kwh <= 0 or dt_h <= 0:
+        return 0.0
+    max_kw = c.BATTERY_MAX_KW * min(1.0, cap_kwh / c.BATTERY_CAPACITY_KWH)
+    if setpoint_kw >= 0:
+        usable_kwh = max(0.0, (soc_pct - floor_pct) / 100 * cap_kwh)
+        return min(setpoint_kw, max_kw, usable_kwh * c.BATTERY_EFF / dt_h, max(net_kw, 0.0))
+    room_kwh = max(0.0, (c.BATTERY_CEIL_PCT - soc_pct) / 100 * cap_kwh)
+    headroom = max(0.0, c.CONTRACT_LIMIT_KW - net_kw)
+    return -min(-setpoint_kw, CHARGE_MAX_KW, room_kwh / c.BATTERY_EFF / dt_h, headroom)
 
 
 def zone_loads(hour: float, cond: Conditions, pol: Policy) -> list[ZoneLoad]:
@@ -210,6 +237,9 @@ def step(bat: Battery, tot: Totals, hour: float, dt_h: float, cond: Conditions, 
     if cond.outage:
         # Islanded: the battery is the only source besides solar.
         battery = min(max(net, 0.0), max_out)
+    elif pol.ai and pol.controller is not None:
+        # dt_h == 0 is a snapshot: show what the controller would do over the next minute.
+        battery = dispatch_setpoint(pol.controller(hour, bat.soc_pct, net, tot.max_import_kw), bat.soc_pct, net, dt_h or 1 / 60, cap_kwh, pol.reserve_floor_pct)
     elif pol.ai:
         if pol.night_charge_to_pct is not None and (h < 6 or h >= 22) and bat.soc_pct < pol.night_charge_to_pct:
             # Charge at off-peak rates without creating a new import peak.

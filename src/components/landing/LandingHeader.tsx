@@ -32,7 +32,8 @@ export function LandingHeader() {
         <div className="flex items-center gap-2">
           <ThemeToggle />
           {AUTH_REQUIRED && !signedIn && (
-            <Button asChild variant="ghost" size="sm">
+            // On phones "Open app" already leads to sign-in; two buttons pushed it off the screen.
+            <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
               <Link to="/login">Sign in</Link>
             </Button>
           )}

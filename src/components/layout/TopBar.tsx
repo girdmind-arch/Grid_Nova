@@ -1,7 +1,7 @@
 import { useAppStore } from "@/store/appStore";
 import { ModeIndicator, ThemeToggle } from "@/components/ui";
 import { Logo } from "./Logo";
-import { LiveWeather, Notifications, OperatorAvatar, SearchButton, SimClock } from "./TopBarParts";
+import { DataSourceSwitch, LiveWeather, Notifications, OperatorAvatar, SearchButton, SimClock } from "./TopBarParts";
 
 /** Top bar: search, simulated clock, mode pill, theme, notifications, operator. */
 export function TopBar() {
@@ -17,6 +17,7 @@ export function TopBar() {
         <div className="ml-auto flex items-center gap-1 sm:gap-2">
           <LiveWeather className="mr-3 hidden xl:flex" />
           <SimClock className="mr-2 hidden sm:flex" />
+          <DataSourceSwitch className="mr-1 hidden md:flex" />
           <ModeIndicator mode={mode} className="hidden sm:inline-flex" />
           <ModeIndicator mode={mode} compact className="sm:hidden" />
           <ThemeToggle />

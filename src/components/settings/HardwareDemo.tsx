@@ -1,34 +1,23 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { useHardwareStore, watchHardware } from "@/store/hardwareStore";
 import { OctagonX, Plug, ShieldCheck } from "lucide-react";
-import type { DataSource, HardwareState, RigCommand, RigReading } from "@/types/hardware";
+import type { DataSource, HardwareState, RigCommand } from "@/types/hardware";
+import { RigReadings } from "@/components/hardware/RigReadings";
 import {
-  ServiceError, USE_MOCKS, armHardware, disarmHardware, emergencyStopHardware, getHardwareState, resetEmergencyStop, setHardwareMode,
+  ServiceError, USE_MOCKS, armHardware, disarmHardware, emergencyStopHardware, resetEmergencyStop, setHardwareMode,
 } from "@/services";
 import { useCanAct } from "@/store/authStore";
 import { Badge, Button, SegmentedControl, toast } from "@/components/ui";
 import { formatTime } from "@/utils/format";
 
-const POLL_MS = 3000;
-
-/** Polls the rig's state every few seconds while this panel is open. */
+/** The rig's state, shared with the rest of the app (one poll every few seconds while anything shows it). */
 export function useHardwareState() {
-  const [state, setState] = useState<HardwareState | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const refresh = useCallback(async () => {
-    try {
-      setState(await getHardwareState());
-      setError(null);
-    } catch (e) {
-      setError(e instanceof ServiceError ? e.message : "The hardware status could not be loaded.");
-    }
-  }, []);
-  useEffect(() => {
-    void refresh();
-    if (USE_MOCKS) return;
-    const id = window.setInterval(() => document.visibilityState === "visible" && void refresh(), POLL_MS);
-    return () => window.clearInterval(id);
-  }, [refresh]);
-  return { state, error, refresh, set: setState };
+  const state = useHardwareStore((s) => s.state);
+  const error = useHardwareStore((s) => s.error);
+  const refresh = useHardwareStore((s) => s.refresh);
+  const set = useHardwareStore((s) => s.set);
+  useEffect(() => watchHardware(), []);
+  return { state, error, refresh, set };
 }
 
 export const COMMAND_LABEL: Record<string, string> = {
@@ -58,24 +47,6 @@ function describe(c: RigCommand) {
   if (c.type === "select_source") return `Source → ${p.source === "powerbank" ? "power bank" : "adapter"}`;
   if (c.type === "set_load") return `${String(p.load)} branch → ${p.on ? "on" : "off"}`;
   return COMMAND_LABEL[c.type];
-}
-
-function Reading({ label, r }: { label: string; r: RigReading | null }) {
-  return (
-    <div className="rounded-md border border-border bg-surface-sunken p-3">
-      <p className="micro-label text-fg-subtle">{label}</p>
-      {r ? (
-        <>
-          <p className="mt-1 font-mono text-sm font-semibold tabular text-fg">
-            {r.voltageV.toFixed(2)} V · {r.currentA.toFixed(2)} A · {r.powerW.toFixed(2)} W
-          </p>
-          <p className="mt-0.5 text-xs text-fg-muted">{r.fresh ? "Measured just now" : "Last measured value (stale)"} · power is V × A</p>
-        </>
-      ) : (
-        <p className="mt-1 text-sm text-fg-muted">No reading from this sensor.</p>
-      )}
-    </div>
-  );
 }
 
 /** Settings → Hardware: simulation vs tabletop rig, arming, emergency stop and what the rig is doing. */
@@ -109,7 +80,6 @@ export function HardwareDemo() {
   const d = state.device;
   const online = d.status === "online";
   const hardwareOn = state.mode === "hardware-demo";
-  const label = { adapter: "Adapter (grid)", powerbank: "Power bank (storage)", none: "Switching…" } as const;
 
   return (
     <div className="space-y-5">
@@ -123,7 +93,9 @@ export function HardwareDemo() {
       </div>
 
       <p className="text-sm text-fg-muted">
-        The campus on every other screen always comes from the simulation. The rig is a small USB-level demo: its readings are volts and amps, not campus kW, and nothing here changes the simulation.
+        The rig is a small USB-level model of the campus: its readings are volts and milliamps, never campus kW. In hardware demo mode the rig drives the
+        demo: unplug its wall adapter and the campus goes into a grid outage, the agents plan the response, and (when armed) the rig moves to the power
+        bank at once while shedding waits for your approval. Plug it back in and the outage ends.
       </p>
 
       <SegmentedControl<DataSource>
@@ -137,27 +109,7 @@ export function HardwareDemo() {
 
       {hardwareOn && (
         <>
-          {d.status !== "never_seen" && (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Reading label="Adapter side" r={d.readings.adapter} />
-              <Reading label="Power-bank side" r={d.readings.battery} />
-              <div className="rounded-md border border-border bg-surface-sunken p-3">
-                <p className="micro-label text-fg-subtle">Selected source</p>
-                <p className="mt-1 text-sm font-semibold text-fg">{d.source ? label[d.source] : "Unknown"}</p>
-                <p className="mt-0.5 text-xs text-fg-muted">Power-bank charge: unknown. A USB output voltage does not show it.</p>
-              </div>
-              <div className="rounded-md border border-border bg-surface-sunken p-3">
-                <p className="micro-label text-fg-subtle">LED branches</p>
-                <div className="mt-1.5 flex flex-wrap gap-1.5">
-                  {state.capabilities.loads.map((l) => (
-                    <Badge key={l.name} size="sm" tone={d.loads[l.name] ? "success" : "neutral"} dot>
-                      {l.name} {d.loads[l.name] ? "on" : "off"}{l.essential ? " (always on)" : ""}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
+          {d.status !== "never_seen" && <RigReadings state={state} />}
           {d.warnings.map((w) => <p key={w} className="text-sm text-warning">{w}</p>)}
 
           {canAct ? (
@@ -180,7 +132,10 @@ export function HardwareDemo() {
           ) : (
             <p className="text-sm text-fg-muted">View-only account: the rig can be watched but not armed.</p>
           )}
-          <p className="text-xs text-fg-subtle">Arming lets scenario actions reach the rig for a short time. Outage and load-shed steps still wait for your approval.</p>
+          <p className="text-xs text-fg-subtle">
+            Arming lets the agents' actions reach the rig for a short time, including the automatic switch to the power bank when the adapter is unplugged.
+            Shedding LED branches still waits for your approval.
+          </p>
         </>
       )}
 
@@ -197,6 +152,20 @@ export function HardwareDemo() {
                 </li>
               );
             })}
+          </ul>
+        </section>
+      )}
+
+      {hardwareOn && state.events && state.events.length > 0 && (
+        <section aria-labelledby="rig-events">
+          <h3 id="rig-events" className="micro-label mb-2 text-fg-subtle">What the rig reported</h3>
+          <ul className="space-y-1 text-sm">
+            {state.events.slice(0, 6).map((e) => (
+              <li key={e.at + e.text} className="flex gap-2">
+                <span className="shrink-0 font-mono text-xs leading-5 text-fg-subtle tabular">{formatTime(e.at)}</span>
+                <span className={e.level === "error" ? "text-danger" : e.level === "warning" ? "text-warning" : "text-fg-muted"}>{e.text}</span>
+              </li>
+            ))}
           </ul>
         </section>
       )}

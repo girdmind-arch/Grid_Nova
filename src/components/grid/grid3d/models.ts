@@ -11,7 +11,7 @@ export interface ModelMaterials {
   roof: THREE.MeshStandardMaterial; // roofs, plant on roofs
   dark: THREE.MeshStandardMaterial; // panels, transformers
   window: THREE.MeshStandardMaterial; // lit windows (emissive)
-  glass: THREE.MeshPhysicalMaterial; // battery glass
+  glass: THREE.MeshStandardMaterial; // battery glass (physical/transmissive on desktop)
   metal: THREE.LineBasicMaterial; // pylon lattice
   panel: THREE.MeshStandardMaterial; // solar cells (glow with output)
   leaf: THREE.MeshStandardMaterial; // trees

@@ -6,7 +6,7 @@
 // figures as the live backend. Regenerate them if the simulation changes.
 // - costSavedPct = 1 - sum(cost.gridnova) / sum(cost.baseline)
 // - peakReducedPct = 1 - (GridNova's highest grid import) / (baseline's), over the 5 days
-// - recovery = average of the scenario rows; runs match LEARNING in mock/agents.ts.
+// - recovery = each scenario's third run with the trained agents (ml/models/metrics.json "scenarios").
 
 import type { Results, ScenarioRunHistory } from "@/types/agents";
 import type { FaultType } from "@/types/grid";
@@ -16,34 +16,34 @@ export const RESULTS: Results = {
   dataNote: "Simulated campus calibrated on public data.",
   headline: {
     costSavedPct: 5.4,
-    peakReducedPct: 26.5,
-    recovery: { gridnovaMin: 2.6, baselineMin: 14.0 },
+    peakReducedPct: 26.4,
+    recovery: { gridnovaMin: 3.2, baselineMin: 14.0 },
   },
   cost: [
-    { label: "Mon", gridnova: 164_209, baseline: 173_827 },
-    { label: "Tue", gridnova: 173_356, baseline: 183_179 },
-    { label: "Wed", gridnova: 159_039, baseline: 168_511 },
-    { label: "Thu", gridnova: 179_532, baseline: 189_415 },
-    { label: "Fri", gridnova: 167_251, baseline: 176_944 },
+    { label: "Mon", gridnova: 164_252, baseline: 173_827 },
+    { label: "Tue", gridnova: 173_435, baseline: 183_179 },
+    { label: "Wed", gridnova: 159_081, baseline: 168_511 },
+    { label: "Thu", gridnova: 179_612, baseline: 189_415 },
+    { label: "Fri", gridnova: 167_293, baseline: 176_944 },
   ],
   peak: [
-    { label: "17:00", gridnova: 1106, baseline: 1324 },
-    { label: "18:00", gridnova: 1106, baseline: 1507 },
-    { label: "19:00", gridnova: 1106, baseline: 1521 },
-    { label: "20:00", gridnova: 1106, baseline: 1493 },
-    { label: "21:00", gridnova: 1106, baseline: 1387 },
-    { label: "22:00", gridnova: 1112, baseline: 1110 },
+    { label: "17:00", gridnova: 1109, baseline: 1324 },
+    { label: "18:00", gridnova: 1109, baseline: 1507 },
+    { label: "19:00", gridnova: 1109, baseline: 1521 },
+    { label: "20:00", gridnova: 1109, baseline: 1493 },
+    { label: "21:00", gridnova: 1109, baseline: 1387 },
+    { label: "22:00", gridnova: 1113, baseline: 1110 },
   ],
   recovery: [
-    { label: "Cloud cover", gridnova: 1.5, baseline: 9.0 },
+    { label: "Cloud cover", gridnova: 1.8, baseline: 9.0 },
     { label: "Heatwave", gridnova: 2.0, baseline: 12.0 },
-    { label: "Line failure", gridnova: 4.5, baseline: 21.0 },
-    { label: "Grid outage", gridnova: 2.5, baseline: 14.0 },
+    { label: "Line failure", gridnova: 4.6, baseline: 21.0 },
+    { label: "Grid outage", gridnova: 4.4, baseline: 14.0 },
   ],
   runs: [
-    { run: 1, recoveryMin: 5.3, costSavedPct: 4.0 },
-    { run: 2, recoveryMin: 3.6, costSavedPct: 4.4 },
-    { run: 3, recoveryMin: 2.6, costSavedPct: 5.4 },
+    { run: 1, recoveryMin: 5.4, costSavedPct: 5.4 },
+    { run: 2, recoveryMin: 3.2, costSavedPct: 5.4 },
+    { run: 3, recoveryMin: 3.2, costSavedPct: 5.4 },
   ],
 };
 

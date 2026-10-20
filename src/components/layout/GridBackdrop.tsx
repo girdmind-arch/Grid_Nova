@@ -73,7 +73,10 @@ export function GridBackdrop() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    // Phones get a still frame: every moving pixel behind the frosted-glass panels forces the
+    // browser to re-blur all of them on every frame, which is what made phones lag.
+    const lowPower = window.matchMedia("(pointer: coarse)").matches || window.innerWidth < 768;
+    const reduceMotion = lowPower || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     let palette = readPalette();
     let w = 0;
     let h = 0;
@@ -86,13 +89,16 @@ export function GridBackdrop() {
     const pulses: Pulse[] = [];
 
     const resize = () => {
-      dpr = Math.min(window.devicePixelRatio || 1, window.matchMedia("(pointer: coarse)").matches ? 1.25 : 1.75);
+      // Mobile browsers fire resize while the address bar slides in and out: ignore small
+      // height-only changes instead of reallocating and redrawing the full-screen canvas.
+      if (w && window.innerWidth === w && Math.abs(window.innerHeight - h) < 160) return;
+      dpr = Math.min(window.devicePixelRatio || 1, lowPower ? 1 : 1.75);
       w = window.innerWidth;
       h = window.innerHeight;
       canvas.width = Math.round(w * dpr);
       canvas.height = Math.round(h * dpr);
-      canvas.style.width = `${w}px`;
-      canvas.style.height = `${h}px`;
+      canvas.style.width = "100%";
+      canvas.style.height = "100%";
       if (reduceMotion) draw(0);
     };
 

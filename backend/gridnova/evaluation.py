@@ -3,7 +3,9 @@
 Five weekdays (4-8 May) are simulated minute by minute twice: once with the
 agents' policy (battery dispatch planned in the twin, pre-cooling, HVAC
 scheduling) and once with no AI (battery idle, no load management). Each day
-gets its own weather. Recovery times come from the digital-twin response model.
+gets its own weather. Recovery times come from running each scenario three times with the
+trained agents (detect + twin search + switching, see agents.py); training writes them to
+ml/models/metrics.json.
 """
 
 from __future__ import annotations
@@ -12,7 +14,7 @@ from dataclasses import replace
 from functools import lru_cache
 
 from . import campus as c
-from .agents import RESPONSE_MODEL, response_minutes
+from .agents import manual_minutes
 from .simulator import Conditions, Policy, best_peak_target, simulate
 
 DAYS = [
@@ -80,7 +82,7 @@ def _build(battery_kwh: float, solar_pct: float, peak_rate: float, temp_offset_c
                           solar_scale=solar_pct / 100, peak_rate=peak_rate, temp_offset_c=temp_offset_c)
         _, base_tot, base_steps = _simulate_day(cond, None)
         base_cost = _day_cost(base_tot)
-        for level in (1, 2, 3):
+        for level in (3,):  # the full policy (battery + HVAC scheduling + pre-cooling)
             bat, t, steps = _simulate_day(cond, _ai_policy(level))
             day_cost = _day_cost(t, bat.soc_pct, battery_kwh)
             saved_by_level[level].append((base_cost, day_cost))
@@ -96,17 +98,12 @@ def _build(battery_kwh: float, solar_pct: float, peak_rate: float, temp_offset_c
             peak_gm[h] += hg.get(h, 0.0) / len(DAYS)
             peak_base[h] += hb.get(h, 0.0) / len(DAYS)
 
-    recovery = []
-    for t in RESPONSE_MODEL:
-        gm, base, _ = response_minutes(t, 3, 3)
-        recovery.append({"label": SCENARIO_LABELS[t], "gridnova": gm, "baseline": base})
-    avg = lambda xs: round(sum(xs) / len(xs), 1)
-    runs = []
-    for run in (1, 2, 3):
-        rec = avg([response_minutes(t, 3, run)[0] for t in RESPONSE_MODEL])
-        pairs = saved_by_level[run]
-        saved = (1 - sum(g for _, g in pairs) / sum(b for b, _ in pairs)) * 100
-        runs.append({"run": run, "recoveryMin": rec, "costSavedPct": round(saved, 1)})
+    scen = scenario_runs()
+    recovery = [{"label": SCENARIO_LABELS[s["type"]], "gridnova": s["runs"][-1]["recoveryMin"], "baseline": s["baselineMin"]} for s in scen]
+    avg = lambda xs: round(sum(xs) / len(xs), 1)  # noqa: E731
+    saved_all = round((1 - tot_gm / tot_base) * 100, 1)
+    runs = [{"run": run, "recoveryMin": avg([s["runs"][run - 1]["recoveryMin"] for s in scen]), "costSavedPct": saved_all}
+            for run in (1, 2, 3)]
 
     changed = {"batteryKwh": battery_kwh, "solarPct": solar_pct, "peakRate": peak_rate, "tempOffsetC": temp_offset_c}
     return {
@@ -127,18 +124,23 @@ def _build(battery_kwh: float, solar_pct: float, peak_rate: float, temp_offset_c
     }
 
 
-def build_run_history() -> list[dict]:
-    from .agents import LESSONS
+@lru_cache(maxsize=1)
+def scenario_runs() -> list[dict]:
+    """Three runs of each scenario with the trained agents (from training, or measured now if missing)."""
+    from .ml import runtime
 
-    out = []
-    for t in RESPONSE_MODEL:
-        base = response_minutes(t, 3, 1)[1]
-        out.append({
-            "type": t,
-            "baselineMin": base,
-            "runs": [
-                {"run": r, "recoveryMin": response_minutes(t, 3, r)[0], **({"lessonApplied": LESSONS[t]} if r > 1 else {})}
-                for r in (1, 2, 3)
-            ],
-        })
-    return out
+    scen = runtime.METRICS.get("scenarios")
+    if scen:
+        return scen
+    from .ml.train import scenario_learning
+
+    return scenario_learning(runtime.MODELS)
+
+
+def build_run_history() -> list[dict]:
+    return [
+        {"type": s["type"], "baselineMin": s["baselineMin"] or manual_minutes(s["type"], 3),
+         "runs": [{"run": r["run"], "recoveryMin": r["recoveryMin"], **({"lessonApplied": r["lessonApplied"]} if r.get("lessonApplied") else {})}
+                  for r in s["runs"]]}
+        for s in scenario_runs()
+    ]

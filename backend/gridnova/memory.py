@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import threading
 
+import numpy as np
+
 HISTORY = {
     "incidents": [
         {"id": "INC-41", "occurredAt": "2026-05-11T14:05:00+05:30", "type": "cloud_cover", "title": "Sudden cloud cover",
@@ -83,3 +85,48 @@ class Memory:
                 for l in self.lessons:
                     if l["note"] == applied:
                         l["appliedCount"] += 1
+
+
+class PlanMemory:
+    """The Critic's experience: which plan worked best in which situation.
+
+    Each entry is a situation (severity, time of day, battery charge, temperature as numbers),
+    the lever values of the best plan the Planner found there, and how well it scored. When a
+    similar situation comes back, the closest entry seeds the Planner's search.
+    """
+
+    MAX_DISTANCE = 0.45  # how different a past situation may be and still count as "similar"
+
+    def __init__(self):
+        self._lock = threading.RLock()
+        self.entries: list[dict] = []
+
+    def recall(self, kind: str, features: np.ndarray) -> dict | None:
+        with self._lock:
+            best, dist = None, float("inf")
+            for e in self.entries:
+                if e["kind"] != kind:
+                    continue
+                d = float(np.linalg.norm(e["features"] - features))
+                if d < dist:
+                    best, dist = e, d
+            if best is None or dist > self.MAX_DISTANCE:
+                return None
+            best["recalled"] += 1
+            return {**best, "distance": dist}
+
+    def store(self, kind: str, features: np.ndarray, params: dict, score: float, source: str, note: str) -> None:
+        with self._lock:
+            # Replace a near-identical memory only if the new plan scored better (keep the best experience).
+            for e in self.entries:
+                if e["kind"] == kind and float(np.linalg.norm(e["features"] - features)) < 0.05:
+                    if score < e["score"]:
+                        e.update(features=features, params=dict(params), score=score, source=source, note=note)
+                    return
+            self.entries.append({"kind": kind, "features": features, "params": dict(params), "score": score,
+                                 "source": source, "note": note, "recalled": 0})
+            del self.entries[:-200]
+
+    def summary(self) -> list[dict]:
+        with self._lock:
+            return [{"kind": e["kind"], "source": e["source"], "note": e["note"], "recalled": e["recalled"]} for e in self.entries]

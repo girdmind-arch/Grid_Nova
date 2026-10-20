@@ -2,21 +2,29 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { ArrowRight } from "lucide-react";
 import { USE_MOCKS, getGridState } from "@/services";
+import { AUTH_REQUIRED } from "@/services/auth";
+import { useAuthStore } from "@/store/authStore";
 import { useService } from "@/hooks/useService";
 import { Badge, Button, Skeleton } from "@/components/ui";
 import { GridView } from "@/components/grid/GridView";
 import { formatKw } from "@/utils/format";
 
+const noPreview = () => Promise.resolve(null);
+
 /** The page's one gradient hero: tagline, what GridNova is, the demo button, and a live grid preview. */
 export function LandingHero() {
   // With the live backend the preview refreshes every few seconds.
+  // The live grid needs a signed-in account; visitors get a sign-in card instead of a
+  // preview that could never load (and no polling in the background).
+  const signedIn = !!useAuthStore((s) => s.session);
+  const canPreview = !AUTH_REQUIRED || signedIn;
   const [tick, setTick] = useState(0);
   useEffect(() => {
-    if (USE_MOCKS) return;
-    const id = window.setInterval(() => setTick((t) => t + 1), 5000);
+    if (USE_MOCKS || !canPreview) return;
+    const id = window.setInterval(() => document.visibilityState === "visible" && setTick((t) => t + 1), 5000);
     return () => window.clearInterval(id);
-  }, []);
-  const grid = useService(getGridState, [tick]);
+  }, [canPreview]);
+  const grid = useService(canPreview ? getGridState : noPreview, [tick, canPreview]);
   const env = grid.data?.environment;
 
   return (
@@ -48,7 +56,14 @@ export function LandingHero() {
                 {grid.data ? `${formatKw(grid.data.demandKw)} demand` : "Live"}
               </Badge>
             </div>
-            {grid.data ? (
+            {!canPreview ? (
+              <div className="flex min-h-[260px] flex-col items-center justify-center gap-4 rounded-md border border-border bg-surface-sunken p-6 text-center">
+                <p className="max-w-xs text-[15px] text-fg-muted">Sign in to watch the live campus grid and the agents at work.</p>
+                <Button asChild>
+                  <Link to="/login">Sign in</Link>
+                </Button>
+              </div>
+            ) : grid.data ? (
               <GridView state={grid.data} compactToggle />
             ) : (
               <Skeleton className="h-[470px]" />

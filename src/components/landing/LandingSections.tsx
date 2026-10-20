@@ -20,10 +20,10 @@ import { LandingSection } from "./LandingSection";
 // ---------- How it works ----------
 
 const STEPS = [
-  { icon: ChartSpline, tone: "solar" as const, title: "Forecast", text: "Predicts demand and solar for the next 12 hours, from weather and campus patterns." },
-  { icon: GitCompareArrows, tone: "ai" as const, title: "Plan and test", text: "Builds Plan A and Plan B and runs both in a digital twin before touching the grid." },
+  { icon: ChartSpline, tone: "solar" as const, title: "Forecast", text: "A neural network trained on campus history predicts the next 12 hours, and keeps learning from the meters." },
+  { icon: GitCompareArrows, tone: "ai" as const, title: "Plan and test", text: "Searches dozens of plans in a digital twin, including its own learned battery policy, before touching the grid." },
   { icon: ShieldCheck, tone: "success" as const, title: "Act safely", text: "Every action passes hard guardrails. Big moves wait for an operator's approval." },
-  { icon: GraduationCap, tone: "accent" as const, title: "Explain and learn", text: "Says why in plain words, scores the result, and remembers the lesson for next time." },
+  { icon: GraduationCap, tone: "accent" as const, title: "Explain and learn", text: "Says why with the real numbers, and remembers what worked so the next similar fault is solved faster." },
 ];
 
 export function HowItWorksSection() {
