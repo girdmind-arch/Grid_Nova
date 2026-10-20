@@ -1,5 +1,5 @@
 # Builds the site and publishes it to GitHub Pages:
-# https://girdmind-arch.github.io/Grid_Mind/
+# https://girdmind-arch.github.io/Grid_Nova/
 # One-time setup: repo Settings → Pages → Source: "GitHub Actions".
 name: Deploy to GitHub Pages
 
@@ -29,9 +29,9 @@ jobs:
       - run: npm ci
       - run: npm run build
         env:
-          BASE_PATH: /Grid_Mind/
+          BASE_PATH: /Grid_Nova/
       # Pages has no SPA fallback: serving index.html as the 404 page makes
-      # deep links like /Grid_Mind/app/results load the app instead of a 404.
+      # deep links like /Grid_Nova/app/results load the app instead of a 404.
       - run: cp dist/index.html dist/404.html
       - uses: actions/upload-pages-artifact@v3
         with:
