@@ -311,8 +311,9 @@ function adoptServerScenario(grid: GridState, decisions: Decision[], set: Set, g
       phase: pending ? "awaiting-approval" : "stable",
       stage: null,
       thinking: false,
-      liveDecision: null,
-      revealed: 0,
+      // Show the agents' full reasoning (and the approval card, if one is pending) straight away.
+      liveDecision: d,
+      revealed: d.steps.length,
       faultSnapshot: null,
       hardware: d.hardware ?? null,
       active: {
