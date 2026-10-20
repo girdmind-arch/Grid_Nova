@@ -114,7 +114,7 @@ self.addEventListener("fetch", (event) => {
 
 export default defineConfig({
   // Served from the domain root by default. GitHub Pages serves this repo at
-  // /Grid_Mind/, so the Pages workflow sets BASE_PATH=/Grid_Mind/.
+  // /Grid_Nova/, so the Pages workflow sets BASE_PATH=/Grid_Nova/.
   base: process.env.BASE_PATH || "/",
   plugins: [react(), tailwindcss(), serviceWorker()],
   resolve: {
