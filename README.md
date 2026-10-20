@@ -13,8 +13,8 @@ This repository holds the **website** (landing page at `/`), the **Control Room 
 Requirements: Node.js 20.19+ or 22.12+ (required by Vite).
 
 ```bash
-git clone https://github.com/girdmind-arch/Grid_Mind.git
-cd Grid_Mind
+git clone https://github.com/girdmind-arch/Grid_Nova.git
+cd Grid_Nova
 npm install
 npm run dev
 ```
@@ -49,10 +49,10 @@ Backend tests: `cd backend && pip install pytest httpx && python -m pytest`.
 
 **Railway (website + backend, one service).** The root `Dockerfile` builds the website with `VITE_API_URL=/` and runs the FastAPI backend, which serves both the API and the site on `$PORT`. `railway.json` tells Railway to use the Dockerfile and to check `/api/health`. Connect the repo to a Railway service and it deploys on every push. The same Dockerfile works on any Docker host.
 
-**GitHub Pages (free, demo data only).** `.github/workflows/deploy-pages.yml` builds the site and publishes it to https://girdmind-arch.github.io/Grid_Mind/ on every push to `main`, or on demand from the Actions tab.
+**GitHub Pages (free, demo data only).** `.github/workflows/deploy-pages.yml` builds the site and publishes it to https://girdmind-arch.github.io/Grid_Nova/ on every push to `main`, or on demand from the Actions tab.
 
 - One-time setup: in the repo, go to **Settings → Pages → Build and deployment → Source** and choose **GitHub Actions**.
-- The workflow builds with `BASE_PATH=/Grid_Mind/` because Pages serves the site from a sub-folder. It copies `index.html` to `404.html`, so deep links such as `/Grid_Mind/app/results` still open the app.
+- The workflow builds with `BASE_PATH=/Grid_Nova/` because Pages serves the site from a sub-folder. It copies `index.html` to `404.html`, so deep links such as `/Grid_Nova/app/results` still open the app.
 
 **Any static host** (Netlify, Vercel, Cloudflare Pages), demo data only. Build with `npm run build` and serve `dist/`, with every unknown path falling back to `index.html`. No `BASE_PATH` is needed at a domain root.
 
@@ -105,8 +105,6 @@ backend/
 │   └── main.py        FastAPI routes; also serves the built website
 └── tests/             API contract tests (pytest), incl. mocked-device hardware tests
 ```
-
-Project rules for contributors (design, theme tokens, data flow) are in [`CLAUDE.md`](CLAUDE.md).
 
 ## How the backend works
 
@@ -292,7 +290,6 @@ To try everything without hardware, run the backend locally with a key and `GRID
 - Device-key lock-out is per client address, so a device behind a shared NAT can be locked out by someone else's bad attempts for up to a minute.
 - Approval mapping is deliberately simple: the "modify" option's hostel percentage is not translated into LED branches; any approval releases the rig plan as computed.
 - The learned branch currents (Settings → Hardware) need the branches switched on and off a few times before they are trusted.
-- `backend/gridmind/` is an older copy of the backend and does not have this feature; Railway runs `backend/gridnova`.
 
 ## Campus data
 
