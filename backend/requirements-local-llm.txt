@@ -1,0 +1,4 @@
+# Install this on Apple Silicon only. Do not add MLX to requirements.txt; Railway
+# runs Linux and does not host this local model server.
+-r requirements.txt
+mlx-lm[train]

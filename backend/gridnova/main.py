@@ -23,6 +23,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from . import auth
+from . import chatbot
 from . import hardware as hw
 from . import campus as c
 from .agents import GUARDRAILS, Orchestrator
@@ -91,7 +92,7 @@ async def require_sign_in(request: Request, call_next):
         user = auth.user_from_header(request.headers.get("authorization"))
         if user is None:
             return JSONResponse({"detail": "Please sign in."}, status_code=401)
-        if request.method != "GET" and user.role != "operator" and path != "/api/auth/me":
+        if request.method != "GET" and user.role != "operator" and path not in {"/api/auth/me", "/api/chat"}:
             return JSONResponse({"detail": "This account is view-only."}, status_code=403)
         request.state.user = user
     return await call_next(request)
@@ -211,6 +212,42 @@ class ApprovalBody(BaseModel):
 
 class GoalBody(BaseModel):
     goal: str = Field(min_length=1, max_length=300)
+
+
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=2000)
+
+
+class ChatBody(BaseModel):
+    messages: list[ChatMessage] = Field(min_length=1, max_length=12)
+
+
+_chat_limit_lock = threading.Lock()
+_chat_calls: dict[str, list[float]] = {}
+
+
+@app.post("/api/chat")
+def chat(body: ChatBody, request: Request):
+    """Answer an operator's or viewer's question using read-only campus context."""
+    now = time.monotonic()
+    client = request.client.host if request.client else "unknown"
+    with _chat_limit_lock:
+        recent = [stamp for stamp in _chat_calls.get(client, []) if now - stamp < 60]
+        if len(recent) >= 12:
+            _chat_calls[client] = recent
+            raise HTTPException(429, "Please wait a minute before asking more questions.")
+        recent.append(now)
+        _chat_calls[client] = recent
+    messages = [{"role": item.role, "content": item.content.strip()} for item in body.messages]
+    if messages[-1]["role"] != "user":
+        raise HTTPException(422, "The latest chat message must be a question from you.")
+    if sum(len(item["content"]) for item in messages) > 8000:
+        raise HTTPException(422, "This conversation is too long. Start a new chat and try again.")
+    try:
+        return {"reply": chatbot.answer(messages, grid_state())}
+    except chatbot.ChatError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from exc
 
 
 class ModeBody(BaseModel):

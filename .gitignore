@@ -8,3 +8,8 @@ dist
 *.tsbuildinfo
 __pycache__/
 .pytest_cache/
+.venv-local-llm/
+local-model/
+!backend/local-model/
+!backend/local-model/adapters/
+!backend/local-model/adapters/**

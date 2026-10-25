@@ -308,6 +308,16 @@ export async function getLearning(): Promise<LearningReport> {
   return LEARNING_SNAPSHOT;
 }
 
+/** Answers a question using the live simulated-campus snapshot. */
+export async function askGridNova(messages: { role: "user" | "assistant"; content: string }[]): Promise<string> {
+  if (USE_MOCKS) throw new ServiceError("Chat needs the live GridNova backend.");
+  const result = await request<{ reply: string }>("/api/chat", {
+    method: "POST",
+    body: JSON.stringify({ messages }),
+  });
+  return result.reply;
+}
+
 export { ServiceError, USE_MOCKS } from "./api";
 
 

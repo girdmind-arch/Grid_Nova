@@ -31,6 +31,10 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (res.status === 403) throw new ServiceError("This account is view-only. Sign in as an operator to make changes.");
   if (!res.ok) {
+    if (path === "/api/chat") {
+      const detail = await res.json().then((j: { detail?: unknown }) => j.detail).catch(() => null);
+      if (typeof detail === "string") throw new ServiceError(detail);
+    }
     // The rig's refusals are written for people ("Hardware is not armed..."): show them as they are.
     if (path.startsWith("/api/hardware/") && res.status >= 400 && res.status < 500) {
       const detail = await res.json().then((j: { detail?: unknown }) => j.detail).catch(() => null);

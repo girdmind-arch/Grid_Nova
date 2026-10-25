@@ -6,6 +6,7 @@ import { prefetchPages } from "@/pages/loaders";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 import { BottomNav } from "./BottomNav";
+import { ChatAssistant } from "./ChatAssistant";
 import { useLiveBackend } from "@/hooks/useLiveBackend";
 import { useCanAct } from "@/store/authStore";
 import { Eye } from "lucide-react";
@@ -49,6 +50,7 @@ export function AppShell() {
         </main>
       </div>
       <BottomNav />
+      <ChatAssistant />
     </div>
   );
 }

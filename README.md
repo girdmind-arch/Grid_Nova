@@ -116,7 +116,28 @@ backend/
 - **Goals.** Goal text changes the planner: "storm" keeps a 60% battery reserve, "battery health" 40%, "comfort" protects hostel cooling, and "cost" accepts small comfort trade-offs.
 - **Memory and learning.** The Critic stores the situation (severity, time, battery, temperature) and the lever values of the best plan. When a similar situation comes back, the search starts by checking that remembered plan and a few close variations, and stops if none is better: about 8 twin runs instead of 50-80. Response time = sensor detection + the twin runs the search actually needed (~3 s each) + the switching operations of the chosen plan, so remembering really does make the next response faster.
 - **Results and what-if.** Five weekdays with different weather are simulated minute by minute, with GridNova and with no AI (battery idle, no load management). Daily cost includes energy, contract-limit penalties, a demand charge on the highest import, and the off-peak cost of refilling the battery. On the Results page, the what-if panel re-runs all five days with a different battery size, solar array, peak tariff or temperature (`POST /api/results/whatif`).
-- **Explanations** are plain-language sentences built from the chosen plan's lever values and twin results. No external AI service or language model is called.
+- **Explanations** are plain-language sentences built from the chosen plan's lever values and twin results. The optional chat assistant below is a separate, read-only feature.
+
+### GridNova Assistant
+
+The signed-in Control Room includes a conversational assistant for questions about the simulated campus. Each request includes a fresh campus snapshot and a small project knowledge base. The assistant cannot call agent tools or issue grid or hardware commands. It does not use an external AI API.
+
+The chatbot fine-tunes the Apache-2.0 Qwen3 1.7B open-weight model with a GridNova LoRA adapter, then serves it locally using Apple's MLX on an Apple Silicon Mac. This is a GridNova-specific trained model customization, not a foundation model trained from random weights. The forecaster and battery policy remain separate models. The one-time base-model download is about 1 GB; after that, inference is local.
+
+On an Apple Silicon Mac, install and train the local model:
+
+```bash
+python3 -m venv .venv-local-llm
+source .venv-local-llm/bin/activate
+python -m pip install -r backend/requirements-local-llm.txt
+cd backend
+python -m gridnova.ml.train_chatbot
+python -m uvicorn gridnova.local_model_server:app --host 127.0.0.1 --port 8001
+```
+
+When the web app and backend also run on this Mac, the default `GRIDNOVA_LOCAL_MODEL_URL` already points to the local model. For the public Railway website to reach your Mac, set up your own secure, authenticated HTTPS tunnel that forwards to `127.0.0.1:8001`, set the same `GRIDNOVA_LOCAL_MODEL_TOKEN` on both services, and set Railway's `GRIDNOVA_LOCAL_MODEL_URL` to the tunnel's HTTPS endpoint. Keep the model server bound to `127.0.0.1`; never expose it directly. The Mac must stay on and connected for the public chatbot to answer. Railway does not provide a GPU and the current Railway trial is too constrained to host this model itself.
+
+Chat messages and a current simulated campus snapshot are sent to your own model machine for inference. GridNova does not save chat history. The assistant warns users not to submit passwords, API keys or personal data. The Qwen base model and its license are [available here](https://huggingface.co/Qwen/Qwen3-1.7B).
 
 ### The agents' own machine learning (`backend/gridnova/ml`)
 
@@ -311,7 +332,7 @@ Tip: press the theme toggle in the top bar if the projector washes out Light mod
 ## Tech stack
 
 Website: React 19, TypeScript, Vite, Tailwind CSS v4 (token-based theming), React Router, Zustand, Recharts, Framer Motion, Radix UI primitives, Lucide icons, Plus Jakarta Sans and JetBrains Mono.
-Backend: Python, FastAPI, Uvicorn, Pydantic, numpy (the agents' own neural network and reinforcement learning, no external AI).
+Backend: Python, FastAPI, Uvicorn, Pydantic, numpy (local campus forecasting and reinforcement learning); optional Apple MLX on the user's Mac for a self-hosted language model.
 
 ## Team
 
