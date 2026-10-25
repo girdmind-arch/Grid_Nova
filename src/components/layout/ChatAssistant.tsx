@@ -34,7 +34,7 @@ export function ChatAssistant() {
     setBusy(true);
     try {
       const reply = await askGridNova(next);
-      setMessages((current) => [...current, { role: "assistant", content: reply }].slice(-10));
+      setMessages((current) => [...current, { role: "assistant" as const, content: reply }].slice(-10));
     } catch (err) {
       setError(err instanceof Error ? err.message : "The assistant could not reply. Try again.");
     } finally {
