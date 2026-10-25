@@ -1,4 +1,4 @@
-import { Bot, ChartColumn, Gauge, History, Settings, Zap } from "lucide-react";
+import { Bot, ChartColumn, Gauge, History, Settings, Wrench, Zap } from "lucide-react";
 
 // Single source of truth for app navigation (sidebar, bottom nav, search).
 
@@ -14,6 +14,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: "/app", label: "Control Room", icon: Gauge, keywords: "home dashboard grid live demand solar battery" },
   { to: "/app/agents", label: "Agents", icon: Bot, keywords: "orchestrator forecaster planner critic guardrail trace thinking" },
   { to: "/app/scenarios", label: "Scenarios", icon: Zap, keywords: "fault cloud heatwave line failure outage break" },
+  { to: "/app/maintenance", label: "Maintenance", icon: Wrench, keywords: "maintenance repair ticket faults ac hvac grid solar battery technician" },
   { to: "/app/memory", label: "Memory", icon: History, keywords: "incidents lessons learned history" },
   { to: "/app/results", label: "Results", icon: ChartColumn, keywords: "baseline savings cost peak recovery judges" },
   { to: "/app/settings", label: "Settings", icon: Settings, keywords: "theme dark light mode goal guardrails" },

@@ -297,6 +297,9 @@ Safety nets in the backend: output current above `GRIDNOVA_RIG_TRIP_A` (1.0 A) t
 | --- | --- | --- |
 | `GRIDNOVA_DEVICE_KEYS` | Hardware demo mode at all | `"esp32-demo-01:<24+ random chars>"`, comma separated for several devices. There is no default. Generate with `openssl rand -hex 24`. |
 | `GRIDNOVA_USERS`, `GRIDNOVA_SECRET` | Controlling a rig on a public site | The demo accounts' passwords are printed on the sign-in page, so with them the server refuses hardware mode and arming (`409`). Set real accounts first (see `backend/gridnova/auth.py`). `GRIDNOVA_HW_ALLOW_DEMO_ACCOUNTS=1` overrides this for a private bench only. |
+| `GRIDNOVA_MAINTENANCE_DIR` | Keeping maintenance tickets and photos between deploys | Point this at a persistent mounted directory. Railway deployments deliberately disable ticket creation until this is set. Add `technician` as a role in `GRIDNOVA_USERS` for repair staff; operators can assign tickets only to configured technician accounts. Public demo accounts may submit simulated tickets only. |
+
+For example, configure private accounts as `operator:<strong-password>:operator,reporter:<strong-password>:viewer,repair:<strong-password>:technician` in Railway Variables. Attach a persistent volume, mount it at a path such as `/data`, then set `GRIDNOVA_MAINTENANCE_DIR=/data`. Ticket photos are normalized to JPEG, private to the reporter, assigned technician, and operator, limited to 5 photos per ticket and a 450 MB total photo budget. Real-world reports are labeled unverified and do not indicate a measured campus fault.
 
 On Railway add them under the service's **Variables** (never in the repo or the frontend), redeploy, then put the same id and key in the ESP32's `config.h`. No other variable is needed; the website and backend share one service. Hardware state lives in memory on a single instance, so a restart forgets the device until its next telemetry and returns to simulation, disarmed.
 

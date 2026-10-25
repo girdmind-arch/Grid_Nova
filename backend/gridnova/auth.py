@@ -21,7 +21,7 @@ import threading
 import time
 from dataclasses import dataclass
 
-ROLES = ("operator", "viewer")
+ROLES = ("operator", "viewer", "technician")
 DEMO_USERS = "operator:gridnova-operator:operator,viewer:gridnova-viewer:viewer"
 _SALT = b"gridnova-v1"
 
@@ -68,6 +68,12 @@ def demo_accounts() -> list[dict]:
         return []
     return [{"username": "operator", "password": "gridnova-operator", "role": "operator"},
             {"username": "viewer", "password": "gridnova-viewer", "role": "viewer"}]
+
+
+def role_for(username: str) -> str | None:
+    """Return the configured role for an account name, without exposing credentials."""
+    entry = _USERS.get(username.strip().lower())
+    return entry[1] if entry else None
 
 
 # ---------- tokens ----------

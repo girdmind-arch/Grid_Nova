@@ -17,6 +17,8 @@ import { RESULTS, RUN_HISTORY } from "./mock/results";
 import { LEARNING_SNAPSHOT } from "./mock/learning";
 import { simNow, syncSimClock } from "@/utils/simTime";
 import type { DataSource, HardwareState } from "@/types/hardware";
+export { createMaintenanceTicket, getMaintenancePhoto, getMaintenanceStatus, getMaintenanceTickets, TICKET_CATEGORIES, TICKET_STATUSES, updateMaintenanceTicket } from "./maintenance";
+export type { MaintenancePhoto, MaintenanceRole, MaintenanceStatus, MaintenanceTicket, NewMaintenanceTicket, TicketStatus } from "./maintenance";
 
 // Several views ask for the grid at the same moment (top bar, page, 3D view): share one request.
 let gridInFlight: Promise<GridState> | null = null;

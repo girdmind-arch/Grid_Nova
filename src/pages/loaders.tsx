@@ -29,13 +29,14 @@ function page(load: () => Promise<{ default: ComponentType }>): Page {
 export const ControlRoom = page(() => import("@/pages/ControlRoom"));
 export const Agents = page(() => import("@/pages/Agents"));
 export const Scenarios = page(() => import("@/pages/Scenarios"));
+export const Maintenance = page(() => import("@/pages/Maintenance"));
 export const Memory = page(() => import("@/pages/Memory"));
 export const Results = page(() => import("@/pages/Results"));
 export const Settings = page(() => import("@/pages/Settings"));
 
 /** Fetches every page's code when the browser is idle. Returns a cleanup function. */
 export function prefetchPages(): () => void {
-  const loaders = [Agents, Scenarios, Memory, Results, Settings, ControlRoom].map((p) => p.preload);
+  const loaders = [Agents, Scenarios, Maintenance, Memory, Results, Settings, ControlRoom].map((p) => p.preload);
   let cancelled = false;
   const run = () => {
     let i = 0;

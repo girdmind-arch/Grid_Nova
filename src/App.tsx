@@ -8,7 +8,7 @@ import Landing from "@/pages/Landing";
 import NotFound from "@/pages/NotFound";
 import Login from "@/pages/Login";
 import { RequireAuth } from "@/components/layout/RequireAuth";
-import { Agents, ControlRoom, Memory, Results, Scenarios, Settings } from "@/pages/loaders";
+import { Agents, ControlRoom, Maintenance, Memory, Results, Scenarios, Settings } from "@/pages/loaders";
 
 // App pages load on demand, so the landing page opens fast and each page only
 // downloads its own code (charts, diagrams) when it is first visited.
@@ -28,6 +28,7 @@ const router = createBrowserRouter([
           { index: true, element: <ControlRoom.Component /> },
           { path: "agents", element: <Agents.Component /> },
           { path: "scenarios", element: <Scenarios.Component /> },
+          { path: "maintenance", element: <Maintenance.Component /> },
           { path: "memory", element: <Memory.Component /> },
           { path: "results", element: <Results.Component /> },
           { path: "settings", element: <Settings.Component /> },

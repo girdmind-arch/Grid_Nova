@@ -18,7 +18,7 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const token = getToken();
     res = await fetch(`${API_BASE}${path}`, {
       ...init,
-      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...init?.headers },
+      headers: { ...(init?.body instanceof FormData ? {} : { "Content-Type": "application/json" }), ...(token ? { Authorization: `Bearer ${token}` } : {}), ...init?.headers },
     });
   } catch {
     throw new ServiceError("The AI service is unreachable. Safe rule-based control is active.");
@@ -31,6 +31,10 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (res.status === 403) throw new ServiceError("This account is view-only. Sign in as an operator to make changes.");
   if (!res.ok) {
+    if (path.startsWith("/api/maintenance/")) {
+      const detail = await res.json().then((j: { detail?: unknown }) => j.detail).catch(() => null);
+      if (typeof detail === "string") throw new ServiceError(detail);
+    }
     if (path === "/api/chat") {
       const detail = await res.json().then((j: { detail?: unknown }) => j.detail).catch(() => null);
       if (typeof detail === "string") throw new ServiceError(detail);

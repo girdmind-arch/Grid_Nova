@@ -15,15 +15,16 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi import Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from . import auth
 from . import chatbot
+from . import maintenance
 from . import hardware as hw
 from . import campus as c
 from .agents import GUARDRAILS, Orchestrator
@@ -92,7 +93,9 @@ async def require_sign_in(request: Request, call_next):
         user = auth.user_from_header(request.headers.get("authorization"))
         if user is None:
             return JSONResponse({"detail": "Please sign in."}, status_code=401)
-        if request.method != "GET" and user.role != "operator" and path not in {"/api/auth/me", "/api/chat"}:
+        is_maintenance_report = path == "/api/maintenance/tickets" and request.method == "POST" and user.role in {"viewer", "operator"}
+        is_maintenance_update = path.startswith("/api/maintenance/tickets/") and request.method == "PATCH" and user.role in {"technician", "operator"}
+        if request.method != "GET" and user.role != "operator" and path not in {"/api/auth/me", "/api/chat"} and not is_maintenance_report and not is_maintenance_update:
             return JSONResponse({"detail": "This account is view-only."}, status_code=403)
         request.state.user = user
     return await call_next(request)
@@ -101,6 +104,102 @@ async def require_sign_in(request: Request, call_next):
 class LoginBody(BaseModel):
     username: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=1, max_length=200)
+
+
+class MaintenanceUpdate(BaseModel):
+    status: str | None = None
+    assignee: str | None = None
+    comment: str | None = None
+
+
+def _maintenance_actor(request: Request):
+    user = getattr(request.state, "user", None)
+    if user is None and not auth.enabled():
+        return auth.User("local operator", "operator")
+    if user is None:
+        raise HTTPException(401, "Please sign in.")
+    return user
+
+
+@app.get("/api/maintenance/status")
+def maintenance_status(request: Request):
+    _maintenance_actor(request)
+    return {"storageReady": maintenance.ready(), "persistentStorageRequired": True,
+            "demoAccounts": auth.IS_DEMO, "maxPhotos": maintenance.MAX_PHOTOS,
+            "maxPhotoBytes": maintenance.MAX_PHOTO_BYTES}
+
+
+@app.get("/api/maintenance/tickets")
+def maintenance_tickets(request: Request):
+    actor = _maintenance_actor(request)
+    if not maintenance.ready():
+        return []
+    return maintenance.list_tickets(actor)
+
+
+@app.post("/api/maintenance/tickets")
+async def maintenance_create_ticket(
+    request: Request,
+    title: str = Form(...), description: str = Form(...), category: str = Form(...),
+    priority: str = Form("normal"), source: str = Form(...), incident_id: str = Form(""),
+    location: str = Form(...), photos: list[UploadFile] = File(default=[]),
+):
+    actor = _maintenance_actor(request)
+    if actor.role not in {"operator", "viewer"}:
+        raise HTTPException(403, "Technicians update assigned tickets and cannot file reports.")
+    if not maintenance.ready():
+        raise HTTPException(503, "Persistent maintenance storage is not configured for this deployment yet.")
+    if len(photos) > maintenance.MAX_PHOTOS:
+        raise HTTPException(400, "Attach up to five photos per report.")
+    try:
+        raw_photos = []
+        for upload in photos:
+            data = await upload.read(maintenance.MAX_PHOTO_BYTES + 1)
+            raw_photos.append((upload.filename or "fault-photo", data))
+        return maintenance.create_ticket(actor, title=title, description=description, category=category,
+                                         priority=priority, source=source, incident_id=incident_id,
+                                         location=location, photos=raw_photos)
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.patch("/api/maintenance/tickets/{ticket_id}")
+def maintenance_update_ticket(ticket_id: str, body: MaintenanceUpdate, request: Request):
+    actor = _maintenance_actor(request)
+    if not maintenance.ready():
+        raise HTTPException(503, "Persistent maintenance storage is not configured for this deployment yet.")
+    ticket = maintenance.get_ticket(ticket_id)
+    if ticket is None:
+        raise HTTPException(404, "Ticket not found.")
+    if actor.role == "technician" and (str(ticket.get("assignee") or "").lower() != actor.name.lower() or body.assignee is not None):
+        raise HTTPException(403, "Technicians can update only tickets assigned to them.")
+    if actor.role not in {"operator", "technician"}:
+        raise HTTPException(403, "Only operators and assigned technicians can update tickets.")
+    if body.assignee and auth.role_for(body.assignee) != "technician":
+        raise HTTPException(400, "Assign tickets to a configured technician account.")
+    try:
+        result = maintenance.update_ticket(ticket_id, status=body.status, assignee=body.assignee,
+                                           comment=body.comment, actor=actor.name)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return result
+
+
+@app.get("/api/maintenance/tickets/{ticket_id}/photos/{photo_id}")
+def maintenance_photo(ticket_id: str, photo_id: str, request: Request):
+    actor = _maintenance_actor(request)
+    ticket = maintenance.get_ticket(ticket_id)
+    if ticket is None:
+        raise HTTPException(404, "Ticket not found.")
+    if not maintenance.can_read(actor, ticket):
+        raise HTTPException(403, "You do not have access to this ticket.")
+    image = maintenance.photo(ticket_id, photo_id)
+    if image is None:
+        raise HTTPException(404, "Photo not found.")
+    filename, data = image
+    return Response(data, media_type="image/jpeg", headers={"Content-Disposition": f'inline; filename="{filename}"', "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
 
 
 @app.post("/api/auth/login")

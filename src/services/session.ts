@@ -1,7 +1,7 @@
 // The signed-in session, kept in this browser. No imports on purpose: api.ts and the
 // auth store both use it. localStorage can be blocked, so everything is try/catch.
 
-export type Role = "operator" | "viewer";
+export type Role = "operator" | "viewer" | "technician";
 
 export interface Session {
   token: string;
