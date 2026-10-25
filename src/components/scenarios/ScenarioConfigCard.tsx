@@ -53,7 +53,7 @@ export function ScenarioConfigCard({ type, onRun, disabled, running, runs = [] }
       <p className="mt-4 flex gap-2 rounded-md bg-surface-sunken px-3 py-2.5 text-sm text-fg-muted">
         <Sparkles aria-hidden className="mt-0.5 size-4 shrink-0 text-ai" />
         <span>
-          <span className="font-semibold text-fg">GridNova will: </span>
+          <span className="font-semibold text-fg">Plan preview: </span>
           {s.response}
         </span>
       </p>

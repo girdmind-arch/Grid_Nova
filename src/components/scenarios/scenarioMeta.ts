@@ -12,7 +12,7 @@ export const SCENARIOS: Record<
     icon: typeof Cloud;
     tone: IconTileTone;
     activeLabel: string;
-    /** What GridNova will do about it, in plain words. */
+    /** A plain-language preview; the digital twin can choose a different safe plan. */
     response: string;
     /** What each severity level (1–5) means for this scenario. */
     severity: [string, string, string, string, string];
@@ -24,7 +24,7 @@ export const SCENARIOS: Record<
     icon: Cloud,
     tone: "solar",
     activeLabel: "Cloud cover is cutting solar output",
-    response: "Bridge the gap with the battery so grid draw stays flat.",
+    response: "Compare battery support, import caps and load shifting in the twin, then apply the best safe plan.",
     severity: ["Solar −15%", "Solar −30%", "Solar −45%", "Solar −60%", "Solar −75%"],
   },
   heatwave: {
@@ -33,7 +33,7 @@ export const SCENARIOS: Record<
     icon: Flame,
     tone: "warning",
     activeLabel: "Heatwave is pushing demand up",
-    response: "Add battery power and pre-cool hostels by 1°C.",
+    response: "Compare battery support and cooling adjustments, then apply the best safe plan.",
     severity: ["Demand +4%", "Demand +8%", "Demand +12%", "Demand +16%", "Demand +20%"],
   },
   line_failure: {
@@ -42,7 +42,7 @@ export const SCENARIOS: Record<
     icon: Zap,
     tone: "danger",
     activeLabel: "Line failure near GH1",
-    response: "Isolate the faulty feeder and reroute the hostel through feeder F2.",
+    response: "Isolate the faulty feeder and test a safe reroute through F2; if none is safe, keep the zone isolated for repair.",
     severity: ["Brief flicker", "Short trip", "Feeder trip", "Cable damage", "Cable and joint damage"],
   },
   grid_outage: {
@@ -51,7 +51,7 @@ export const SCENARIOS: Record<
     icon: Unplug,
     tone: "accent",
     activeLabel: "Main grid supply is lost",
-    response: "Run the campus on solar and battery. Asks you before reducing hostels.",
+    response: "Test solar, battery and hostel-load options; get operator approval before reducing hostel power.",
     severity: ["Voltage dip", "Short outage", "Full outage", "Long outage", "Area-wide blackout"],
   },
 };

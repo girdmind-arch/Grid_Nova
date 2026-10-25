@@ -444,7 +444,10 @@ class Orchestrator:
         if p.get("battery") == "learned" and not (fault and fault.type == "grid_outage"):
             bits.append("The battery is run by the Planner's learned policy, which it trained on 40,000 simulated days.")
         elif pol.peak_target_kw and not (fault and fault.type == "grid_outage"):
-            bits.append(f"The battery holds grid import at about {fmt_kw(pol.peak_target_kw)} in the evening, when power is dearest.")
+            bits.append(
+                f"The evening grid-import cap is about {fmt_kw(pol.peak_target_kw)}; "
+                "the battery discharges only if needed to stay under it."
+            )
         if pol.bridge_solar_gap:
             bits.append("While it is cloudy the battery covers the missing solar instead of buying it at a high rate.")
         if pol.extra_discharge_kw > 20 and p.get("battery") != "learned":

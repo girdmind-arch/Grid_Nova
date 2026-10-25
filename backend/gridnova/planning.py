@@ -228,7 +228,9 @@ def summarise_plan(params: dict, pol: Policy, fault) -> tuple[str, list[str]]:
         acts.append("Battery run by the learned RL policy")
         title_bits.append("learned battery policy")
     elif strategy == "cap":
-        acts.append(f"Battery caps grid import at {round(pol.peak_target_kw or 0):,} kW 17:00–22:00")
+        acts.append(
+            f"Set evening grid-import cap to {round(pol.peak_target_kw or 0):,} kW; battery discharges only if needed"
+        )
         title_bits.append(f"cap import at {round(pol.peak_target_kw or 0):,} kW")
     else:
         acts.append("Battery idle")

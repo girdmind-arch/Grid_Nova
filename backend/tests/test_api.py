@@ -5,6 +5,9 @@ from fastapi.testclient import TestClient
 
 from gridnova import campus as c
 from gridnova.main import app
+from gridnova.grid import Fault
+from gridnova.planning import summarise_plan
+from gridnova.simulator import Policy
 
 
 @pytest.fixture()
@@ -23,6 +26,12 @@ def test_grid_state_balances(client):
     assert len(g["zones"]) == 10
     assert 20 <= g["battery"]["socPct"] <= 90
     assert g["tariff"]["slab"] in {"off-peak", "normal", "peak"}
+
+
+def test_cap_plan_describes_conditional_battery_dispatch():
+    fault = Fault("cloud_cover", 3, 30, "INC-TEST", 17.0)
+    _, actions = summarise_plan({"battery": "cap"}, Policy(peak_target_kw=891), fault)
+    assert actions == ["Set evening grid-import cap to 891 kW; battery discharges only if needed"]
 
 
 def test_forecast_shape(client):
