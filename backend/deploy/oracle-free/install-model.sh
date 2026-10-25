@@ -79,8 +79,7 @@ Group=gridnova
 Environment=HF_HOME=$APP_DIR/cache/huggingface
 Environment=LLAMA_CACHE=$APP_DIR/cache/llama.cpp
 Environment=HOME=$APP_DIR
-Environment=LLAMA_ARG_CHAT_TEMPLATE_KWARGS={\"enable_thinking\":false}
-ExecStart=$LLAMA_DIR/build/bin/llama-server --hf-repo tensorblock/Qwen_Qwen3-1.7B-GGUF:Q4_K_M --lora-scaled $MODEL_DIR/gridnova-lora.gguf:1.0 --host 127.0.0.1 --port 8001 --ctx-size 4096 --threads 2 --parallel 1 --api-key-file $API_KEY_FILE --no-webui
+ExecStart=$LLAMA_DIR/build/bin/llama-server --hf-repo tensorblock/Qwen_Qwen3-1.7B-GGUF:Q4_K_M --alias gridnova-local --lora-scaled $MODEL_DIR/gridnova-lora.gguf:1.0 --reasoning off --host 127.0.0.1 --port 8001 --ctx-size 4096 --threads 2 --parallel 1 --api-key-file $API_KEY_FILE --no-webui
 Restart=always
 RestartSec=5
 NoNewPrivileges=true
