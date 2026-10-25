@@ -42,6 +42,8 @@ def enabled() -> bool:
 
 def _load_users() -> tuple[dict[str, tuple[bytes, str]], bool]:
     raw = os.environ.get("GRIDNOVA_USERS", "").strip()
+    technician_name = os.environ.get("GRIDNOVA_TECHNICIAN_USERNAME", "").strip()
+    technician_password = os.environ.get("GRIDNOVA_TECHNICIAN_PASSWORD", "")
     demo = not raw
     users: dict[str, tuple[bytes, str]] = {}
     for item in (raw or DEMO_USERS).split(","):
@@ -49,6 +51,8 @@ def _load_users() -> tuple[dict[str, tuple[bytes, str]], bool]:
         if len(parts) != 3 or parts[2] not in ROLES or not parts[0] or not parts[1]:
             continue
         users[parts[0].lower()] = (_hash(parts[1]), parts[2])
+    if technician_name and technician_password and technician_name.lower() not in users:
+        users[technician_name.lower()] = (_hash(technician_password), "technician")
     return users, demo
 
 
