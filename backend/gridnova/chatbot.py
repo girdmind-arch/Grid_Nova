@@ -28,7 +28,13 @@ def _is_loopback(url: str) -> bool:
     return host in {"localhost", "127.0.0.1", "::1"}
 
 
-def answer(messages: list[dict[str, str]], campus: dict) -> str:
+def answer(
+    messages: list[dict[str, str]],
+    campus: dict,
+    *,
+    max_tokens: int = 700,
+    temperature: float = 0.3,
+) -> str:
     """Call the locally hosted model; this function never contacts an AI vendor."""
     endpoint = _local_url()
     token = os.environ.get("GRIDNOVA_LOCAL_MODEL_TOKEN", "").strip()
@@ -48,8 +54,8 @@ def answer(messages: list[dict[str, str]], campus: dict) -> str:
     payload = json.dumps({
         "model": "gridnova-local",
         "messages": [{"role": "system", "content": system}, *messages],
-        "temperature": 0.3,
-        "max_tokens": 700,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
         "stream": False,
     }).encode("utf-8")
     headers = {"Content-Type": "application/json"}

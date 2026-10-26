@@ -126,20 +126,17 @@ The chatbot fine-tunes the Apache-2.0 Qwen3 1.7B open-weight model with a GridNo
 
 For zero extra hosting cost while the Mac is off, the repository includes an Oracle Cloud Always Free ARM deployment using CPU inference and a Tailscale Funnel HTTPS address. See [`backend/deploy/oracle-free/README.md`](backend/deploy/oracle-free/README.md) before creating the VM. Free-tier capacity is not guaranteed; Oracle can reclaim a very idle VM, so this is not an uptime SLA. It uses the same trained adapter, converted for llama.cpp, and requires the same bearer token on Railway and the model server.
 
-The local Apple Silicon setup below is still available for development and training. It runs the MLX model on the Mac.
-
-On an Apple Silicon Mac, install and train the local model:
+The local Apple Silicon setup runs the existing MLX model and adapter on the Mac. Inference does not retrain or rewrite either file. Install the optional dependencies and start the server (do not run the training command):
 
 ```bash
 python3 -m venv .venv-local-llm
 source .venv-local-llm/bin/activate
 python -m pip install -r backend/requirements-local-llm.txt
 cd backend
-python -m gridnova.ml.train_chatbot
 python -m uvicorn gridnova.local_model_server:app --host 127.0.0.1 --port 8001
 ```
 
-When the web app and backend also run on this Mac, the default `GRIDNOVA_LOCAL_MODEL_URL` already points to the local model. If using the Mac as the public model host, it must stay on and connected. For an always-on free-tier host that does not depend on the Mac, follow the Oracle deployment guide above. Keep either model server bound to `127.0.0.1`; never expose port 8001 directly.
+MLX requires Apple Silicon and macOS; the MLX checkpoint and adapter are not directly loadable by the listed Windows Transformers/PEFT dependencies. On Windows, use the GridNova website/API and connect it to the same model host instead of converting or substituting the model. Railway runs the website and backend; the model runs on the Mac or the separately configured Oracle host. Set `GRIDNOVA_LOCAL_MODEL_URL` on the Railway GridNova service to an HTTPS tunnel URL for the Mac when it hosts inference, and set the same `GRIDNOVA_LOCAL_MODEL_TOKEN` on Railway and the model host. Keep the model server bound to `127.0.0.1` behind the tunnel; never expose port 8001 directly. If using a local copy of the website/backend, set those variables in its environment too. Windows and macOS can call the signed-in Railway API at `/v1/chat/completions`; requests use the same gateway, current campus context, and rate limit as `/api/chat`.
 
 Chat messages and a current simulated campus snapshot are sent to your own model machine for inference. GridNova does not save chat history. The assistant warns users not to submit passwords, API keys or personal data. The Qwen base model and its license are [available here](https://huggingface.co/Qwen/Qwen3-1.7B).
 
