@@ -11,6 +11,7 @@ import os
 import re
 import threading
 import time
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
@@ -89,13 +90,14 @@ DEVICE_PREFIX = "/api/hardware/device/"
 async def require_sign_in(request: Request, call_next):
     """Every /api call needs a signed-in user; changes (anything but GET) need an operator."""
     path = request.url.path
-    if auth.enabled() and path.startswith("/api/") and path not in OPEN_PATHS and not path.startswith(DEVICE_PREFIX) and request.method != "OPTIONS":
+    protected_chat = path == "/v1/chat/completions"
+    if auth.enabled() and (path.startswith("/api/") or protected_chat) and path not in OPEN_PATHS and not path.startswith(DEVICE_PREFIX) and request.method != "OPTIONS":
         user = auth.user_from_header(request.headers.get("authorization"))
         if user is None:
             return JSONResponse({"detail": "Please sign in."}, status_code=401)
         is_maintenance_report = path == "/api/maintenance/tickets" and request.method == "POST" and user.role in {"viewer", "operator"}
         is_maintenance_update = path.startswith("/api/maintenance/tickets/") and request.method == "PATCH" and user.role in {"technician", "operator"}
-        if request.method != "GET" and user.role != "operator" and path not in {"/api/auth/me", "/api/chat"} and not is_maintenance_report and not is_maintenance_update:
+        if request.method != "GET" and user.role != "operator" and path not in {"/api/auth/me", "/api/chat", "/v1/chat/completions"} and not is_maintenance_report and not is_maintenance_update:
             return JSONResponse({"detail": "This account is view-only."}, status_code=403)
         request.state.user = user
     return await call_next(request)
@@ -322,13 +324,30 @@ class ChatBody(BaseModel):
     messages: list[ChatMessage] = Field(min_length=1, max_length=12)
 
 
+class OpenAIChatMessage(BaseModel):
+    role: Literal["system", "user", "assistant"]
+    content: str = Field(min_length=1, max_length=2000)
+
+
+class OpenAIChatBody(BaseModel):
+    messages: list[OpenAIChatMessage] = Field(min_length=1, max_length=12)
+    model: Literal["gridnova-local"] = "gridnova-local"
+    max_tokens: int = Field(default=700, ge=1, le=1000)
+    temperature: float = Field(default=0.3, ge=0.0, le=1.5)
+    stream: bool = False
+
+
 _chat_limit_lock = threading.Lock()
 _chat_calls: dict[str, list[float]] = {}
 
 
-@app.post("/api/chat")
-def chat(body: ChatBody, request: Request):
-    """Answer an operator's or viewer's question using read-only campus context."""
+def _answer_chat(
+    messages: list[dict[str, str]],
+    request: Request,
+    *,
+    max_tokens: int = 700,
+    temperature: float = 0.3,
+) -> str:
     now = time.monotonic()
     client = request.client.host if request.client else "unknown"
     with _chat_limit_lock:
@@ -338,15 +357,47 @@ def chat(body: ChatBody, request: Request):
             raise HTTPException(429, "Please wait a minute before asking more questions.")
         recent.append(now)
         _chat_calls[client] = recent
-    messages = [{"role": item.role, "content": item.content.strip()} for item in body.messages]
-    if messages[-1]["role"] != "user":
+    if not messages or messages[-1]["role"] != "user":
         raise HTTPException(422, "The latest chat message must be a question from you.")
     if sum(len(item["content"]) for item in messages) > 8000:
         raise HTTPException(422, "This conversation is too long. Start a new chat and try again.")
     try:
-        return {"reply": chatbot.answer(messages, grid_state())}
+        return chatbot.answer(messages, grid_state(), max_tokens=max_tokens, temperature=temperature)
     except chatbot.ChatError as exc:
         raise HTTPException(exc.status_code, str(exc)) from exc
+
+
+@app.post("/api/chat")
+def chat(body: ChatBody, request: Request):
+    """Answer an operator's or viewer's question using read-only campus context."""
+    messages = [{"role": item.role, "content": item.content.strip()} for item in body.messages]
+    return {"reply": _answer_chat(messages, request)}
+
+
+@app.post("/v1/chat/completions")
+def openai_chat_completions(body: OpenAIChatBody, request: Request):
+    """OpenAI-style non-streaming chat endpoint, protected by the GridNova sign-in."""
+    if body.stream:
+        raise HTTPException(400, "Streaming is not supported by this endpoint.")
+    # Client-provided system prompts are conversation data, not trusted policy.
+    if body.messages[-1].role != "user":
+        raise HTTPException(422, "The latest chat message must be a question from you.")
+    messages = [
+        {"role": "user" if item.role == "system" else item.role, "content": item.content.strip()}
+        for item in body.messages
+    ]
+    reply = _answer_chat(messages, request, max_tokens=body.max_tokens, temperature=body.temperature)
+    return {
+        "id": f"chatcmpl-{uuid.uuid4().hex[:20]}",
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": body.model,
+        "choices": [{
+            "index": 0,
+            "message": {"role": "assistant", "content": reply},
+            "finish_reason": "stop",
+        }],
+    }
 
 
 class ModeBody(BaseModel):
