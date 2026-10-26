@@ -12,6 +12,7 @@ export interface MaintenanceTicket {
   description: string;
   category: string;
   priority: string;
+  severity?: number | null;
   status: TicketStatus;
   source: "real" | "simulated";
   incidentId?: string | null;
@@ -66,4 +67,8 @@ export async function getMaintenancePhoto(ticketId: string, photoId: string): Pr
   });
   if (!res.ok) throw new Error("Could not load this private photo.");
   return res.blob();
+}
+
+export function deleteMaintenanceTicket(id: string) {
+  return request<{ deleted: boolean }>(`/api/maintenance/tickets/${encodeURIComponent(id)}`, { method: "DELETE" });
 }

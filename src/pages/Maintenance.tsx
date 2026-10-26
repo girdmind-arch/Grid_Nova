@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { AlertTriangle, ArrowUpRight, Camera, Check, ClipboardList, HardHat, ImagePlus, LoaderCircle, Plus, RefreshCw, Send, ShieldCheck, Wrench, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { AlertTriangle, ArrowUpRight, Camera, Check, ClipboardList, HardHat, ImagePlus, LoaderCircle, Plus, RefreshCw, Send, ShieldCheck, Trash2, Wrench, X } from "lucide-react";
 import { Button, Card, PageHeader } from "@/components/ui";
 import { useAuthStore } from "@/store/authStore";
-import { createMaintenanceTicket, getMaintenancePhoto, getMaintenanceStatus, getMaintenanceTickets, TICKET_CATEGORIES, TICKET_STATUSES, updateMaintenanceTicket, type MaintenanceStatus, type MaintenanceTicket, type TicketStatus } from "@/services";
+import { createMaintenanceTicket, deleteMaintenanceTicket, getMaintenancePhoto, getMaintenanceStatus, getMaintenanceTickets, TICKET_CATEGORIES, TICKET_STATUSES, updateMaintenanceTicket, type MaintenanceStatus, type MaintenanceTicket, type TicketStatus } from "@/services";
 import { cn } from "@/utils/cn";
 
 const PRIORITIES = ["low", "normal", "high", "urgent"] as const;
@@ -66,13 +66,14 @@ function NewReport({ disabled, demoAccounts, onCreated }: { disabled: boolean; d
   </form>;
 }
 
-function TicketDetail({ ticket, role, onUpdated }: { ticket: MaintenanceTicket; role: string; onUpdated: (ticket: MaintenanceTicket) => void }) {
+function TicketDetail({ ticket, role, onUpdated, onDeleted }: { ticket: MaintenanceTicket; role: string; onUpdated: (ticket: MaintenanceTicket) => void; onDeleted: (ticket: MaintenanceTicket) => void }) {
   const [status, setStatus] = useState<TicketStatus>(ticket.status);
   const [assignee, setAssignee] = useState(ticket.assignee ?? "");
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [photoUrl, setPhotoUrl] = useState("");
+  useEffect(() => { setStatus(ticket.status); setAssignee(ticket.assignee ?? ""); }, [ticket.status, ticket.assignee]);
   const canManage = role === "operator" || role === "technician";
 
   async function save() {
@@ -84,6 +85,16 @@ function TicketDetail({ ticket, role, onUpdated }: { ticket: MaintenanceTicket; 
     finally { setBusy(false); }
   }
 
+  async function removeTicket() {
+    if (!window.confirm(`Delete “${ticket.title}”? This permanently removes the ticket and its attached photos and updates.`)) return;
+    setBusy(true); setError("");
+    try {
+      await deleteMaintenanceTicket(ticket.id);
+      onDeleted(ticket);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not delete this ticket."); }
+    finally { setBusy(false); }
+  }
+
   async function openPhoto(id: string) {
     try { const blob = await getMaintenancePhoto(ticket.id, id); setPhotoUrl(URL.createObjectURL(blob)); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "Could not load photo."); }
@@ -91,12 +102,12 @@ function TicketDetail({ ticket, role, onUpdated }: { ticket: MaintenanceTicket; 
 
   useEffect(() => () => { if (photoUrl) URL.revokeObjectURL(photoUrl); }, [photoUrl]);
   return <div className="space-y-5">
-    <div className="flex flex-wrap items-center gap-2"><SourceTag source={ticket.source} /><span className="rounded-full bg-surface-sunken px-2.5 py-1 text-xs font-medium text-fg-muted">{categoryName(ticket.category)}</span><span className="rounded-full bg-surface-sunken px-2.5 py-1 text-xs font-medium text-fg-muted">{ticket.priority} priority</span></div>
+    <div className="flex flex-wrap items-center gap-2"><SourceTag source={ticket.source} /><span className="rounded-full bg-surface-sunken px-2.5 py-1 text-xs font-medium text-fg-muted">{categoryName(ticket.category)}</span><span className="rounded-full bg-surface-sunken px-2.5 py-1 text-xs font-medium text-fg-muted">{ticket.priority} priority</span>{ticket.severity != null && <span className="rounded-full bg-surface-sunken px-2.5 py-1 text-xs font-medium text-fg-muted">Severity {ticket.severity}/5</span>}</div>
     <div><h2 className="text-xl font-bold text-fg">{ticket.title}</h2><p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-fg-muted">{ticket.description}</p></div>
     <dl className="grid grid-cols-2 gap-3 rounded-md bg-surface-sunken p-3 text-sm"><div><dt className="text-xs text-fg-subtle">Location</dt><dd className="mt-1 font-medium text-fg">{ticket.location}</dd></div><div><dt className="text-xs text-fg-subtle">Reported by</dt><dd className="mt-1 font-medium text-fg">{ticket.reporter}</dd></div><div><dt className="text-xs text-fg-subtle">Opened</dt><dd className="mt-1 text-fg">{dateLabel(ticket.createdAt)}</dd></div><div><dt className="text-xs text-fg-subtle">Assigned to</dt><dd className="mt-1 text-fg">{ticket.assignee || "Unassigned"}</dd></div>{ticket.incidentId && <div className="col-span-2"><dt className="text-xs text-fg-subtle">Linked simulated incident</dt><dd className="mt-1 font-mono text-xs text-fg">{ticket.incidentId}</dd></div>}</dl>
     {ticket.photos.length > 0 && <div><h3 className="mb-2 text-sm font-semibold text-fg">Attached photos <span className="font-normal text-fg-subtle">({ticket.photos.length})</span></h3><div className="flex flex-wrap gap-2">{ticket.photos.map((photo) => <button key={photo.id} type="button" onClick={() => void openPhoto(photo.id)} className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-xs text-fg-muted hover:border-accent/50"><Camera className="size-4" />{photo.filename}</button>)}</div></div>}
     {ticket.comments.length > 0 && <div><h3 className="mb-2 text-sm font-semibold text-fg">Updates</h3><ol className="space-y-2 border-l border-border pl-4">{ticket.comments.map((item) => <li key={item.id}><p className="text-sm text-fg">{item.body}</p><p className="mt-1 text-xs text-fg-subtle">{item.author} · {dateLabel(item.createdAt)}</p></li>)}</ol></div>}
-    {canManage && <div className="space-y-3 border-t border-border pt-4"><h3 className="text-sm font-semibold text-fg">Update ticket</h3><div className="grid gap-3 sm:grid-cols-2"><label className="text-xs font-medium text-fg-muted">Status<select value={status} onChange={(e) => setStatus(e.target.value as TicketStatus)} className="mt-1.5 h-10 w-full rounded-md border border-border bg-surface px-2.5 text-sm">{TICKET_STATUSES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>{role === "operator" && <label className="text-xs font-medium text-fg-muted">Technician assignment<input value={assignee} onChange={(e) => setAssignee(e.target.value)} maxLength={64} placeholder="Technician username" className="mt-1.5 h-10 w-full rounded-md border border-border bg-surface px-2.5 text-sm" /></label>}</div><label className="block text-xs font-medium text-fg-muted">Add an update<textarea value={comment} onChange={(e) => setComment(e.target.value)} maxLength={2000} rows={2} placeholder="Work completed, parts needed, next steps…" className="mt-1.5 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm" /></label><Button variant="primary" size="sm" disabled={busy || status === ticket.status && assignee === (ticket.assignee ?? "") && !comment.trim()} onClick={() => void save()}>{busy ? <LoaderCircle className="animate-spin" /> : <Send />} Save update</Button></div>}
+    {canManage && <div className="space-y-3 border-t border-border pt-4"><h3 className="text-sm font-semibold text-fg">Update ticket</h3><div className="grid gap-3 sm:grid-cols-2"><label className="text-xs font-medium text-fg-muted">Status<select value={status} onChange={(e) => setStatus(e.target.value as TicketStatus)} className="mt-1.5 h-10 w-full rounded-md border border-border bg-surface px-2.5 text-sm">{TICKET_STATUSES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>{role === "operator" && <label className="text-xs font-medium text-fg-muted">Technician assignment<input value={assignee} onChange={(e) => setAssignee(e.target.value)} maxLength={64} placeholder="Technician username" className="mt-1.5 h-10 w-full rounded-md border border-border bg-surface px-2.5 text-sm" /></label>}</div><label className="block text-xs font-medium text-fg-muted">Add an update<textarea value={comment} onChange={(e) => setComment(e.target.value)} maxLength={2000} rows={2} placeholder="Work completed, parts needed, next steps…" className="mt-1.5 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm" /></label><div className="flex flex-wrap gap-2"><Button variant="primary" size="sm" disabled={busy || status === ticket.status && assignee === (ticket.assignee ?? "") && !comment.trim()} onClick={() => void save()}>{busy ? <LoaderCircle className="animate-spin" /> : <Send />} Save update</Button>{role === "operator" && <Button variant="danger" size="sm" disabled={busy} onClick={() => void removeTicket()}><Trash2 /> Delete ticket</Button>}</div></div>}
     {error && <p role="alert" className="text-sm text-danger">{error}</p>}
     {photoUrl && <div role="dialog" aria-modal="true" aria-label="Maintenance photo" onClick={() => setPhotoUrl("")} className="fixed inset-0 z-50 grid place-items-center bg-black/80 p-5"><button className="absolute right-5 top-5 rounded-full bg-white/10 p-2 text-white" aria-label="Close photo"><X /></button><img src={photoUrl} alt="Uploaded fault report" onClick={(event) => event.stopPropagation()} className="max-h-[85vh] max-w-full rounded-lg object-contain" /></div>}
   </div>;
@@ -111,18 +122,40 @@ export default function Maintenance() {
   const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const refresh = async () => {
+  const [success, setSuccess] = useState("");
+  const refreshInFlight = useRef(false);
+  const ticketVersion = useRef(0);
+  const refresh = useCallback(async () => {
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
+    const versionAtStart = ticketVersion.current;
     setError("");
-    try { const [meta, items] = await Promise.all([getMaintenanceStatus(), getMaintenanceTickets()]); setStorage(meta); setTickets(items); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "Maintenance service is unavailable."); }
-    finally { setLoading(false); }
-  };
-  useEffect(() => { void refresh(); }, []);
+    try {
+      const [meta, items] = await Promise.all([getMaintenanceStatus(), getMaintenanceTickets()]);
+      setStorage(meta);
+      if (versionAtStart === ticketVersion.current) {
+        setTickets(items);
+        setSelectedId((current) => current && items.some((item) => item.id === current) ? current : items[0]?.id ?? "");
+      }
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Maintenance service is unavailable."); }
+    finally { setLoading(false); refreshInFlight.current = false; }
+  }, []);
+  useEffect(() => {
+    void refresh();
+    const timer = window.setInterval(() => { void refresh(); }, 5000);
+    return () => window.clearInterval(timer);
+  }, [refresh]);
   const selected = tickets.find((ticket) => ticket.id === selectedId) ?? tickets[0];
   const shown = useMemo(() => filter === "all" ? tickets : tickets.filter((ticket) => ticket.status === filter), [tickets, filter]);
   const counts = useMemo(() => ({ open: tickets.filter((ticket) => !["resolved", "closed"].includes(ticket.status)).length, urgent: tickets.filter((ticket) => ticket.priority === "urgent" && !["resolved", "closed"].includes(ticket.status)).length, done: tickets.filter((ticket) => ["resolved", "closed"].includes(ticket.status)).length }), [tickets]);
-  const upsert = (ticket: MaintenanceTicket) => { setTickets((existing) => [ticket, ...existing.filter((item) => item.id !== ticket.id)]); setSelectedId(ticket.id); };
+  const upsert = (ticket: MaintenanceTicket) => { ticketVersion.current += 1; setTickets((existing) => [ticket, ...existing.filter((item) => item.id !== ticket.id)]); setSelectedId(ticket.id); };
   const storageMissing = storage?.storageReady === false;
+  const handleDeleted = (ticket: MaintenanceTicket) => {
+    ticketVersion.current += 1;
+    setTickets((existing) => existing.filter((item) => item.id !== ticket.id));
+    setSelectedId((current) => current === ticket.id ? "" : current);
+    setSuccess(`Ticket “${ticket.title}” was deleted.`);
+  };
   const canReport = role === "operator" || role === "viewer";
 
   return <div className="space-y-6">
@@ -130,6 +163,7 @@ export default function Maintenance() {
     {storageMissing && <div role="status" className="flex gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4"><span className="mt-0.5 text-amber-600"><AlertTriangle className="size-5" /></span><div><p className="text-sm font-semibold text-fg">Persistent storage needs setup</p><p className="mt-1 max-w-3xl text-sm leading-relaxed text-fg-muted">This deployment has no persistent maintenance volume configured. Ticket creation is paused so reports and photos are not lost on restart. Attach a persistent volume and set <code className="rounded bg-surface-sunken px-1">GRIDNOVA_MAINTENANCE_DIR</code> to its mount path to enable the service.</p></div></div>}
     {storage?.demoAccounts && <div className="flex gap-2 rounded-lg border border-border bg-surface-raised p-3 text-xs leading-relaxed text-fg-muted"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-accent" /><p>Real reports are manually submitted and unverified. Public demo accounts can only submit simulated tickets; private staff accounts are needed for real fault reports.</p></div>}
     {error && <div role="alert" className="flex items-center justify-between rounded-lg border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">{error}<button onClick={() => void refresh()} aria-label="Retry"><RefreshCw className="size-4" /></button></div>}
+    {success && <p role="status" className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300">{success}</p>}
     <div className="grid gap-3 sm:grid-cols-3"><Card padding="sm" className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-lg bg-accent/10 text-accent"><ClipboardList className="size-5" /></span><div><p className="text-xs text-fg-subtle">Active tickets</p><p className="font-mono text-2xl font-bold text-fg">{counts.open}</p></div></Card><Card padding="sm" className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-lg bg-amber-500/10 text-amber-600"><AlertTriangle className="size-5" /></span><div><p className="text-xs text-fg-subtle">Urgent attention</p><p className="font-mono text-2xl font-bold text-fg">{counts.urgent}</p></div></Card><Card padding="sm" className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-lg bg-emerald-500/10 text-emerald-600"><Check className="size-5" /></span><div><p className="text-xs text-fg-subtle">Resolved / closed</p><p className="font-mono text-2xl font-bold text-fg">{counts.done}</p></div></Card></div>
     <div className="grid items-start gap-5 xl:grid-cols-[minmax(280px,0.82fr)_minmax(360px,1.18fr)]">
       {canReport && <Card padding="md" className="xl:sticky xl:top-5"><NewReport disabled={loading || !storage?.storageReady} demoAccounts={!!storage?.demoAccounts} onCreated={upsert} /></Card>}
@@ -140,9 +174,9 @@ export default function Maintenance() {
             {loading ? <div className="flex items-center justify-center gap-2 p-8 text-sm text-fg-muted"><LoaderCircle className="size-4 animate-spin" />Loading tickets</div> : shown.length ? <ul className="space-y-1">{shown.map((ticket) => <li key={ticket.id}><button onClick={() => setSelectedId(ticket.id)} className={cn("w-full rounded-md p-3 text-left transition-colors", selected?.id === ticket.id ? "bg-accent/10 ring-1 ring-accent/30" : "hover:bg-surface-sunken")}><div className="flex items-start justify-between gap-2"><p className="line-clamp-2 text-sm font-semibold text-fg">{ticket.title}</p><span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase", ticket.priority === "urgent" ? "bg-danger/10 text-danger" : ticket.priority === "high" ? "bg-amber-500/10 text-amber-700 dark:text-amber-300" : "bg-surface-sunken text-fg-subtle")}>{ticket.priority}</span></div><p className="mt-1.5 text-xs text-fg-muted">{categoryName(ticket.category)} · {ticket.location}</p><div className="mt-2 flex items-center justify-between gap-2"><span className="text-xs font-medium text-accent">{statusName(ticket.status)}</span><span className="truncate text-[10px] text-fg-subtle">{ticket.reporter}</span></div></button></li>)}</ul> : <div className="px-4 py-10 text-center"><Wrench className="mx-auto size-6 text-fg-subtle" /><p className="mt-2 text-sm font-medium text-fg">{tickets.length ? "No tickets in this status" : "No maintenance tickets yet"}</p><p className="mt-1 text-xs text-fg-subtle">{tickets.length ? "Choose another filter." : role === "technician" ? "Tickets assigned to you will appear here." : "New fault reports will appear in this queue."}</p></div>}
           </div>
         </Card>
-        <Card padding="md" className="min-h-72">{selected ? <TicketDetail key={selected.id} ticket={selected} role={role} onUpdated={upsert} /> : <div className="grid min-h-64 place-items-center text-center"><div><HardHat className="mx-auto size-8 text-fg-subtle" /><p className="mt-3 font-medium text-fg">Ticket details</p><p className="mt-1 text-sm text-fg-muted">Select a ticket to see updates and repair details.</p></div></div>}</Card>
+        <Card padding="md" className="min-h-72">{selected ? <TicketDetail key={selected.id} ticket={selected} role={role} onUpdated={upsert} onDeleted={handleDeleted} /> : <div className="grid min-h-64 place-items-center text-center"><div><HardHat className="mx-auto size-8 text-fg-subtle" /><p className="mt-3 font-medium text-fg">Ticket details</p><p className="mt-1 text-sm text-fg-muted">Select a ticket to see updates and repair details.</p></div></div>}</Card>
       </div>
     </div>
-    <p className="flex items-center gap-1.5 text-xs text-fg-subtle"><HardHat className="size-3.5" />This page tracks repair reports only; it does not measure faults or control campus equipment.<ArrowUpRight className="size-3.5" /></p>
+    <p className="flex items-center gap-1.5 text-xs text-fg-subtle"><HardHat className="size-3.5" />This page tracks reports and GridNova simulation or tabletop demo incidents; it does not monitor the real campus grid.<ArrowUpRight className="size-3.5" /></p>
   </div>;
 }

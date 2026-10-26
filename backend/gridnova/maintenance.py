@@ -58,7 +58,8 @@ def connect() -> sqlite3.Connection:
         id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL,
         category TEXT NOT NULL, priority TEXT NOT NULL, status TEXT NOT NULL,
         source TEXT NOT NULL, incident_id TEXT, location TEXT NOT NULL,
-        reporter TEXT NOT NULL, assignee TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+        reporter TEXT NOT NULL, assignee TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        severity INTEGER
       );
       CREATE TABLE IF NOT EXISTS comments (
         id TEXT PRIMARY KEY, ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
@@ -68,7 +69,25 @@ def connect() -> sqlite3.Connection:
         id TEXT PRIMARY KEY, ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
         filename TEXT NOT NULL, data BLOB NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS issue_sync (
+        issue_key TEXT PRIMARY KEY, incident_id TEXT NOT NULL, origin TEXT NOT NULL,
+        ticket_id TEXT, dismissed_at TEXT, resolved_at TEXT
+      );
     """)
+    columns = {row["name"] for row in db.execute("PRAGMA table_info(tickets)")}
+    if "severity" not in columns:
+        # Serialize first-time schema upgrades across worker connections, then
+        # re-check after acquiring the write lock so only one connection alters it.
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(tickets)")}
+            if "severity" not in columns:
+                db.execute("ALTER TABLE tickets ADD COLUMN severity INTEGER")
+            db.commit()
+        except Exception:
+            db.rollback()
+            db.close()
+            raise
     db.execute("PRAGMA foreign_keys=ON")
     return db
 
@@ -170,9 +189,9 @@ def create_ticket(user, *, title: str, description: str, category: str, priority
         total = sum(len(data) for _, data in prepared)
         if used_bytes(db) + total > MAX_TOTAL_BYTES:
             raise ValueError("Maintenance photo storage is full. Ask an operator to free space.")
-        db.execute("INSERT INTO tickets VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        db.execute("INSERT INTO tickets (id,title,description,category,priority,status,source,incident_id,location,reporter,assignee,created_at,updated_at,severity) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                    (ticket_id, title.strip(), description.strip(), category, priority, "open", source,
-                    (incident_id or "").strip()[:80] or None, location.strip(), user.name, None, stamp, stamp))
+                    (incident_id or "").strip()[:80] or None, location.strip(), user.name, None, stamp, stamp, None))
         for name, data in prepared:
             db.execute("INSERT INTO photos VALUES (?,?,?,?)", (str(uuid.uuid4()), ticket_id, name, data))
         row = db.execute("SELECT * FROM tickets WHERE id=?", (ticket_id,)).fetchone()
@@ -197,6 +216,126 @@ def update_ticket(ticket_id: str, *, status: str | None, assignee: str | None,
             db.execute("INSERT INTO comments VALUES (?,?,?,?,?)", (str(uuid.uuid4()), ticket_id, actor, comment.strip(), stamp))
         row = db.execute("SELECT * FROM tickets WHERE id=?", (ticket_id,)).fetchone()
         return ticket_dict(db, row)
+
+
+def sync_grid_issue(issue: dict | None) -> dict | None:
+    """Sync the authoritative active grid fault; failures must not call this with None."""
+    stamp = now()
+    with database() as db:
+        db.execute("BEGIN IMMEDIATE")
+        if issue is None:
+            rows = db.execute(
+                "SELECT issue_key,ticket_id FROM issue_sync WHERE origin<>'rig' AND dismissed_at IS NULL AND resolved_at IS NULL"
+            ).fetchall()
+            for row in rows:
+                if row["ticket_id"]:
+                    ticket = db.execute("SELECT status FROM tickets WHERE id=?", (row["ticket_id"],)).fetchone()
+                    if ticket and ticket["status"] not in ("resolved", "closed"):
+                        db.execute("UPDATE tickets SET status='resolved',updated_at=? WHERE id=?", (stamp, row["ticket_id"]))
+                db.execute("UPDATE issue_sync SET resolved_at=? WHERE issue_key=?", (stamp, row["issue_key"]))
+            return None
+
+        incident_id = str(issue["incidentId"])
+        issue_key = str(issue.get("issueKey") or incident_id)
+        origin = str(issue.get("origin") or "website")
+        # GridNova exposes one authoritative active fault at a time. Replace prior
+        # simulated episodes, but retain rig issues until telemetry explicitly reports recovery.
+        previous = db.execute(
+            "SELECT issue_key,ticket_id FROM issue_sync WHERE issue_key<>? AND origin<>'rig' AND dismissed_at IS NULL AND resolved_at IS NULL",
+            (issue_key,),
+        ).fetchall()
+        for old in previous:
+            if old["ticket_id"]:
+                old_ticket = db.execute("SELECT status FROM tickets WHERE id=?", (old["ticket_id"],)).fetchone()
+                if old_ticket and old_ticket["status"] not in ("resolved", "closed"):
+                    db.execute("UPDATE tickets SET status='resolved',updated_at=? WHERE id=?", (stamp, old["ticket_id"]))
+            db.execute("UPDATE issue_sync SET resolved_at=? WHERE issue_key=?", (stamp, old["issue_key"]))
+        state = db.execute("SELECT * FROM issue_sync WHERE issue_key=?", (issue_key,)).fetchone()
+        if state and state["resolved_at"]:
+            if incident_id == state["incident_id"]:
+                return None  # the same resolved episode must not be reopened by a stale sample
+            # An explicit recovery followed by a different incident ID is a new episode.
+            db.execute("UPDATE issue_sync SET incident_id=?,origin=?,ticket_id=NULL,dismissed_at=NULL,resolved_at=NULL WHERE issue_key=?",
+                       (incident_id, origin, issue_key))
+            state = db.execute("SELECT * FROM issue_sync WHERE issue_key=?", (issue_key,)).fetchone()
+        elif state and state["dismissed_at"]:
+            return None
+
+        ticket = None
+        if state and state["ticket_id"]:
+            ticket = db.execute("SELECT * FROM tickets WHERE id=?", (state["ticket_id"],)).fetchone()
+        if ticket is None:
+            # Adopt an existing report explicitly linked to this incident.
+            ticket = db.execute(
+                "SELECT * FROM tickets WHERE incident_id=? ORDER BY created_at LIMIT 1",
+                (incident_id,),
+            ).fetchone()
+
+        if ticket is None:
+            ticket_id = str(uuid.uuid4())
+            db.execute(
+                "INSERT INTO tickets (id,title,description,category,priority,status,source,incident_id,location,reporter,assignee,created_at,updated_at,severity) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (ticket_id, issue["title"], issue["description"], issue["category"], issue["priority"],
+                 "open", "simulated", incident_id, issue["location"], "gridnova-monitor", None,
+                 stamp, stamp, issue["severity"]),
+            )
+            ticket = db.execute("SELECT * FROM tickets WHERE id=?", (ticket_id,)).fetchone()
+        else:
+            status = "open" if ticket["status"] in ("resolved", "closed") else ticket["status"]
+            values = (issue["title"], issue["description"], issue["category"], issue["priority"],
+                      status, issue["location"], issue["severity"])
+            previous = (ticket["title"], ticket["description"], ticket["category"], ticket["priority"],
+                        ticket["status"], ticket["location"], ticket["severity"])
+            if values != previous:
+                db.execute(
+                    "UPDATE tickets SET title=?,description=?,category=?,priority=?,status=?,location=?,severity=?,updated_at=? WHERE id=?",
+                    (*values, stamp, ticket["id"]),
+                )
+                ticket = db.execute("SELECT * FROM tickets WHERE id=?", (ticket["id"],)).fetchone()
+
+        if state:
+            db.execute("UPDATE issue_sync SET incident_id=?,origin=?,ticket_id=? WHERE issue_key=?",
+                       (incident_id, origin, ticket["id"], issue_key))
+        else:
+            db.execute("INSERT INTO issue_sync (issue_key,incident_id,origin,ticket_id) VALUES (?,?,?,?)",
+                       (issue_key, incident_id, origin, ticket["id"]))
+        return ticket_dict(db, ticket)
+
+
+def resolve_grid_issue(issue_key: str) -> None:
+    """Resolve a named fault only after its source has explicitly reported recovery."""
+    stamp = now()
+    with database() as db:
+        db.execute("BEGIN IMMEDIATE")
+        state = db.execute("SELECT ticket_id FROM issue_sync WHERE issue_key=?", (issue_key,)).fetchone()
+        if state and state["ticket_id"]:
+            ticket = db.execute("SELECT status FROM tickets WHERE id=?", (state["ticket_id"],)).fetchone()
+            if ticket and ticket["status"] not in ("resolved", "closed"):
+                db.execute("UPDATE tickets SET status='resolved',updated_at=? WHERE id=?", (stamp, state["ticket_id"]))
+        if state:
+            db.execute("UPDATE issue_sync SET dismissed_at=NULL,resolved_at=? WHERE issue_key=?", (stamp, issue_key))
+
+
+def delete_ticket(ticket_id: str) -> bool:
+    """Delete one ticket and retain a dismissal for its linked active incident."""
+    with database() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute("SELECT id,incident_id FROM tickets WHERE id=?", (ticket_id,)).fetchone()
+        if row is None:
+            return False
+        stamp = now()
+        incident = db.execute("SELECT issue_key,incident_id,origin FROM issue_sync WHERE ticket_id=?", (ticket_id,)).fetchone()
+        incident_id = incident["incident_id"] if incident else row["incident_id"]
+        issue_key = incident["issue_key"] if incident else incident_id
+        origin = incident["origin"] if incident else "website"
+        if issue_key and incident_id:
+            db.execute(
+                "INSERT INTO issue_sync (issue_key,incident_id,origin,ticket_id,dismissed_at) VALUES (?,?,?,NULL,?) "
+                "ON CONFLICT(issue_key) DO UPDATE SET ticket_id=NULL,dismissed_at=excluded.dismissed_at",
+                (issue_key, incident_id, origin, stamp),
+            )
+        db.execute("DELETE FROM tickets WHERE id=?", (ticket_id,))
+        return True
 
 
 def photo(ticket_id: str, photo_id: str) -> tuple[str, bytes] | None:

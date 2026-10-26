@@ -29,6 +29,10 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
     window.dispatchEvent(new Event(SIGNED_OUT_EVENT));
     throw new ServiceError("Your session ended. Please sign in again.");
   }
+  if (res.status === 403 && path.startsWith("/api/maintenance/")) {
+    const detail = await res.json().then((j: { detail?: unknown }) => j.detail).catch(() => null);
+    if (typeof detail === "string") throw new ServiceError(detail);
+  }
   if (res.status === 403) throw new ServiceError("This account is view-only. Sign in as an operator to make changes.");
   if (!res.ok) {
     if (path.startsWith("/api/maintenance/")) {

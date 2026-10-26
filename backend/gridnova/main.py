@@ -31,7 +31,7 @@ from . import campus as c
 from .agents import GUARDRAILS, Orchestrator
 from .evaluation import build_results, build_run_history
 from .forecast import build_forecast
-from .grid import LiveGrid, iso
+from .grid import Fault, LiveGrid, iso
 from .memory import Memory
 from .simulator import Battery, Totals, step
 from .locations import CITIES, search as search_places, tariff_for
@@ -45,9 +45,49 @@ c.set_tariff(_t.off_peak, _t.normal, _t.peak)
 grid = LiveGrid(weather)
 memory = Memory()
 orchestrator = Orchestrator(grid, memory)
+_maintenance_sync_lock = threading.Lock()
 TICK_S = 5.0
 # Fallback / Manual switches revert to AI Control after this long (0 = never).
 MODE_TTL_S = float(os.environ.get("GRIDNOVA_MODE_TTL_MIN", "10")) * 60
+
+
+def _maintenance_issue(fault: Fault) -> dict:
+    """Translate the active simulated/rig fault into the existing maintenance ticket model."""
+    labels = {
+        "cloud_cover": ("Solar generation drop", "solar"),
+        "heatwave": ("High cooling demand", "ac_hvac"),
+        "line_failure": ("Feeder line failure", "grid_feeder"),
+        "grid_outage": ("Grid outage", "grid_feeder"),
+    }
+    title, category = labels[fault.type]
+    zone_id = fault.target_zone_id
+    default_locations = {"cloud_cover": "Campus solar array", "heatwave": "Campus HVAC", "grid_outage": "Campus grid"}
+    location = c.ZONE_BY_ID[zone_id].name if zone_id in c.ZONE_BY_ID else default_locations.get(fault.type, "Campus grid")
+    priority = "urgent" if fault.severity >= 4 else "high" if fault.severity == 3 else "normal" if fault.severity == 2 else "low"
+    if fault.origin == "rig":
+        detail = f"GridNova tabletop hardware demo reported a {title.lower()} at {location}. Severity {fault.severity}/5."
+    else:
+        detail = f"GridNova simulation detected a {title.lower()} at {location}. Severity {fault.severity}/5."
+    if fault.note:
+        detail += f" Observation: {fault.note}."
+    issue_key = "rig:adapter-outage" if fault.origin == "rig" else fault.incident_id
+    return {"incidentId": fault.incident_id, "issueKey": issue_key, "origin": fault.origin,
+            "title": f"{title} — {location}", "description": detail, "category": category,
+            "priority": priority, "location": location, "severity": fault.severity}
+
+
+def sync_maintenance_from_grid() -> None:
+    """Use current in-process grid state; skip synchronization if storage is unavailable."""
+    try:
+        with _maintenance_sync_lock:
+            if not maintenance.ready():
+                return
+            with grid._lock:
+                fault = grid.fault
+                issue = _maintenance_issue(fault) if fault else None
+            maintenance.sync_grid_issue(issue)
+    except Exception:
+        logging.getLogger("gridnova.maintenance").exception("could not synchronize maintenance ticket")
 
 
 def _agent_loop():
@@ -60,6 +100,7 @@ def _agent_loop():
             orchestrator.tick()
             hw.service.housekeeping()  # offline devices, expired commands, arming timeouts
             process_rig_events()  # in case a reading arrived while a request was busy
+            sync_maintenance_from_grid()
         except Exception:  # keep the loop alive; the error is in the logs
             logging.getLogger("gridnova.agents").exception("agent tick failed")
 
@@ -97,11 +138,11 @@ async def require_sign_in(request: Request, call_next):
             return JSONResponse({"detail": "Please sign in."}, status_code=401)
         is_maintenance_report = path == "/api/maintenance/tickets" and request.method == "POST" and user.role in {"viewer", "operator"}
         is_maintenance_update = path.startswith("/api/maintenance/tickets/") and request.method == "PATCH" and user.role in {"technician", "operator"}
-        if request.method != "GET" and user.role != "operator" and path not in {"/api/auth/me", "/api/chat", "/v1/chat/completions"} and not is_maintenance_report and not is_maintenance_update:
+        is_maintenance_delete = re.fullmatch(r"/api/maintenance/tickets/[^/]+", path) is not None and request.method == "DELETE"
+        if request.method != "GET" and user.role != "operator" and path not in {"/api/auth/me", "/api/chat", "/v1/chat/completions"} and not is_maintenance_report and not is_maintenance_update and not is_maintenance_delete:
             return JSONResponse({"detail": "This account is view-only."}, status_code=403)
         request.state.user = user
     return await call_next(request)
-
 
 class LoginBody(BaseModel):
     username: str = Field(min_length=1, max_length=64)
@@ -187,6 +228,18 @@ def maintenance_update_ticket(ticket_id: str, body: MaintenanceUpdate, request: 
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return result
+
+
+@app.delete("/api/maintenance/tickets/{ticket_id}")
+def maintenance_delete_ticket(ticket_id: str, request: Request):
+    actor = _maintenance_actor(request)
+    if actor.role != "operator":
+        raise HTTPException(403, "Only operators can delete maintenance tickets.")
+    if not maintenance.ready():
+        raise HTTPException(503, "Persistent maintenance storage is not configured for this deployment yet.")
+    if not maintenance.delete_ticket(ticket_id):
+        raise HTTPException(404, "Ticket not found.")
+    return {"deleted": True}
 
 
 @app.get("/api/maintenance/tickets/{ticket_id}/photos/{photo_id}")
@@ -479,6 +532,7 @@ def inject(req: FaultRequest):
     if req.targetZoneId and req.targetZoneId not in c.ZONE_BY_ID:
         raise HTTPException(400, "Unknown zone.")
     f = grid.start_fault(req.type, req.severity, req.durationMin, req.targetZoneId)
+    sync_maintenance_from_grid()
     return {
         "incidentId": f.incident_id,
         "startedAt": iso(grid.at(f.started_hour)),
@@ -491,6 +545,7 @@ def inject(req: FaultRequest):
 @app.post("/api/scenarios/clear")
 def clear():
     _clear_scenario()
+    sync_maintenance_from_grid()
     return JSONResponse(None)
 
 
@@ -533,10 +588,18 @@ def process_rig_events() -> list[dict]:
                 d["hardware"] = plan
                 handled.append({"event": ev["type"], "incidentId": f.incident_id})
             elif ev["type"] == "adapter_restored":
-                if grid.fault and grid.fault.origin == "rig":
-                    inc = grid.fault.incident_id
+                inc = grid.fault.incident_id if grid.fault and grid.fault.origin == "rig" else None
+                if inc:
                     _clear_scenario()
-                    handled.append({"event": ev["type"], "incidentId": inc})
+                # Adapter restoration is authoritative for the rig issue even if a
+                # separate simulated scenario currently occupies grid.fault.
+                try:
+                    with _maintenance_sync_lock:
+                        if maintenance.ready():
+                            maintenance.resolve_grid_issue("rig:adapter-outage")
+                except Exception:
+                    logging.getLogger("gridnova.maintenance").exception("could not resolve restored rig issue")
+                handled.append({"event": ev["type"], **({"incidentId": inc} if inc else {})})
             else:
                 handled.append({"event": ev["type"]})  # shown in the rig's event log and warnings
         except Exception:  # the device call must still get its answer
@@ -653,6 +716,7 @@ def get_sim():
 @app.post("/api/sim")
 def set_sim(body: ClockBody):
     grid.set_clock(body.clock, body.speed)
+    sync_maintenance_from_grid()
     orchestrator.decisions.insert(0, orchestrator._routine_decision())
     return grid.environment()
 
@@ -722,6 +786,7 @@ def device_telemetry(body: hw.Telemetry, request: Request, x_device_id: str | No
     did = _device(request, x_device_id, authorization)
     out = _hw(hw.service.ingest_telemetry, body, did)
     process_rig_events()
+    sync_maintenance_from_grid()
     return out
 
 

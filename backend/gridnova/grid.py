@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import threading
 import time
+import uuid
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 
@@ -20,6 +21,7 @@ from .weather import Weather
 
 IST = timezone(timedelta(hours=5, minutes=30))
 DEMO_START_HOUR = 17 + 20 / 60
+_INCIDENT_SESSION = uuid.uuid4().hex[:8]
 STEP_MIN = 1.0
 MAX_CATCH_UP_H = 36.0  # if the server was asleep, don't replay more than this
 
@@ -208,7 +210,7 @@ class LiveGrid:
             self.incident_counter += 1
             if type_ == "line_failure":
                 target_zone_id = target_zone_id or "hostel-gh1"
-            self.fault = Fault(type_, max(1, min(5, severity)), duration_min, f"INC-{self.incident_counter}", self._hour, target_zone_id,
+            self.fault = Fault(type_, max(1, min(5, severity)), duration_min, f"INC-{self.incident_counter}-{_INCIDENT_SESSION}", self._hour, target_zone_id,
                                origin=origin, note=note)
             self.mode = "ai"
             # The fault hits before anyone reacts: drop any earlier scenario response.
