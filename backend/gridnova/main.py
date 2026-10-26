@@ -138,14 +138,11 @@ async def require_sign_in(request: Request, call_next):
             return JSONResponse({"detail": "Please sign in."}, status_code=401)
         is_maintenance_report = path == "/api/maintenance/tickets" and request.method == "POST" and user.role in {"viewer", "operator"}
         is_maintenance_update = path.startswith("/api/maintenance/tickets/") and request.method == "PATCH" and user.role in {"technician", "operator"}
-```
-    is_maintenance_delete = re.fullmatch(r"/api/maintenance/tickets/[^/]+", path) is not None and request.method == "DELETE"
-    if request.method != "GET" and user.role != "operator" and path not in {"/api/auth/me", "/api/chat", "/v1/chat/completions"} and not is_maintenance_report and not is_maintenance_update and not is_maintenance_delete:
-```
+        is_maintenance_delete = re.fullmatch(r"/api/maintenance/tickets/[^/]+", path) is not None and request.method == "DELETE"
+        if request.method != "GET" and user.role != "operator" and path not in {"/api/auth/me", "/api/chat", "/v1/chat/completions"} and not is_maintenance_report and not is_maintenance_update and not is_maintenance_delete:
             return JSONResponse({"detail": "This account is view-only."}, status_code=403)
         request.state.user = user
     return await call_next(request)
-
 
 class LoginBody(BaseModel):
     username: str = Field(min_length=1, max_length=64)
