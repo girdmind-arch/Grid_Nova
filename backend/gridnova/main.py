@@ -139,7 +139,8 @@ async def require_sign_in(request: Request, call_next):
         is_maintenance_report = path == "/api/maintenance/tickets" and request.method == "POST" and user.role in {"viewer", "operator"}
         is_maintenance_update = path.startswith("/api/maintenance/tickets/") and request.method == "PATCH" and user.role in {"technician", "operator"}
         is_maintenance_delete = re.fullmatch(r"/api/maintenance/tickets/[^/]+", path) is not None and request.method == "DELETE"
-        if request.method != "GET" and user.role != "operator" and path not in {"/api/auth/me", "/api/chat", "/v1/chat/completions"} and not is_maintenance_report and not is_maintenance_update and not is_maintenance_delete:
+        is_maintenance_workflow = request.method == "POST" and re.fullmatch(r"/api/maintenance/tickets/[^/]+/workflow", path) is not None and user.role in {"viewer", "operator", "technician"}
+        if request.method != "GET" and user.role != "operator" and path not in {"/api/auth/me", "/api/chat", "/v1/chat/completions"} and not is_maintenance_report and not is_maintenance_update and not is_maintenance_delete and not is_maintenance_workflow:
             return JSONResponse({"detail": "This account is view-only."}, status_code=403)
         request.state.user = user
     return await call_next(request)
@@ -153,6 +154,22 @@ class MaintenanceUpdate(BaseModel):
     status: str | None = None
     assignee: str | None = None
     comment: str | None = None
+
+
+class MaintenanceWorkflowAction(BaseModel):
+    action: Literal["approve", "reject", "withdraw", "revise", "redirect", "submit", "progress", "resolve"]
+    category: str | None = None
+    problem: str | None = None
+    assistance: str | None = None
+    confidence: float | None = None
+    reviewNeeded: bool | None = None
+    provider: str | None = None
+    reason: str | None = None
+    reference: str | None = None
+    note: str | None = None
+    evidence: str | None = None
+    source: str | None = None
+    details: str | None = None
 
 
 def _maintenance_actor(request: Request):
@@ -228,6 +245,24 @@ def maintenance_update_ticket(ticket_id: str, body: MaintenanceUpdate, request: 
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return result
+
+
+@app.post("/api/maintenance/tickets/{ticket_id}/workflow")
+def maintenance_workflow_action(ticket_id: str, body: MaintenanceWorkflowAction, request: Request):
+    actor = _maintenance_actor(request)
+    if not maintenance.ready():
+        raise HTTPException(503, "Persistent maintenance storage is not configured for this deployment yet.")
+    ticket = maintenance.get_ticket(ticket_id)
+    if ticket is None:
+        raise HTTPException(404, "Ticket not found.")
+    if not maintenance.can_read(actor, ticket):
+        raise HTTPException(403, "You do not have access to this ticket.")
+    try:
+        return maintenance.workflow_action(ticket_id, actor, body.action, body.model_dump(exclude={"action"}))
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @app.delete("/api/maintenance/tickets/{ticket_id}")
@@ -422,8 +457,26 @@ def _answer_chat(
 
 @app.post("/api/chat")
 def chat(body: ChatBody, request: Request):
-    """Answer an operator's or viewer's question using read-only campus context."""
+    """Answer questions or process an explicit approval command for a maintenance ticket."""
     messages = [{"role": item.role, "content": item.content.strip()} for item in body.messages]
+    latest = messages[-1]["content"] if messages and messages[-1]["role"] == "user" else ""
+    approval = re.fullmatch(r"\s*(?:please\s+)?(?:approve|proceed with)\s+(?:the\s+)?(?:maintenance\s+)?(?:ticket|query)\s+(?:id\s+)?([0-9a-f-]{36})\s*[.!]?\s*", latest, re.IGNORECASE)
+    if approval:
+        actor = _maintenance_actor(request)
+        if not maintenance.ready():
+            raise HTTPException(503, "Persistent maintenance storage is not configured.")
+        ticket = maintenance.get_ticket(approval.group(1))
+        if ticket is None:
+            raise HTTPException(404, "That maintenance ticket was not found.")
+        if not maintenance.can_read(actor, ticket):
+            raise HTTPException(403, "You do not have access to that maintenance ticket.")
+        try:
+            updated = maintenance.workflow_action(ticket["id"], actor, "approve", {})
+            return {"reply": f"Approved the current proposed classification and simulated destination for “{ticket['title']}”. Approval was recorded as {actor.name} ({actor.role}) at {updated['workflow']['approved_at']}."}
+        except PermissionError as exc:
+            raise HTTPException(403, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
     return {"reply": _answer_chat(messages, request)}
 
 

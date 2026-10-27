@@ -81,7 +81,8 @@ def test_manual_ticket_creation_endpoint_remains_compatible(monkeypatch, tmp_pat
 
 def test_repeated_monitoring_is_idempotent_and_updates_only_on_change(monkeypatch, tmp_path):
     setup_storage(monkeypatch, tmp_path)
-    times = iter(["2026-01-01T00:00:00+00:00", "2026-01-01T00:00:01+00:00", "2026-01-01T00:00:02+00:00"])
+    times = iter(["2026-01-01T00:00:00+00:00", "2026-01-01T00:00:01+00:00", "2026-01-01T00:00:02+00:00",
+                  "2026-01-01T00:00:03+00:00", "2026-01-01T00:00:04+00:00"])
     monkeypatch.setattr(maintenance, "now", lambda: next(times))
     first = maintenance.sync_grid_issue(issue())
     repeated = maintenance.sync_grid_issue(issue())
