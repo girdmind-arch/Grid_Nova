@@ -6,16 +6,6 @@ export type TicketStatus = "open" | "triaged" | "assigned" | "in_progress" | "wa
 
 export interface MaintenancePhoto { id: string; filename: string }
 export interface MaintenanceComment { id: string; author: string; body: string; createdAt: string }
-export interface MaintenanceWorkflow {
-  ticket_id: string; category: string; problem: string; assistance: string; urgency: string;
-  confidence: number; reviewNeeded: boolean; provider: string; state: string; version: number;
-  approved_version?: number | null; approved_by?: string | null; approved_role?: string | null;
-  approved_at?: string | null; rejection?: string | null; redirected_at?: string | null;
-  submitted_at?: string | null; reference?: string | null; resolution_source?: string | null;
-  resolution_details?: string | null; resolved_at?: string | null;
-  history: { state: string; actor: string; details: string; created_at: string; createdAt: string }[];
-  notes: { id: string; actor: string; body: string; evidence: string; createdAt: string }[];
-}
 export interface MaintenanceTicket {
   id: string;
   title: string;
@@ -33,7 +23,6 @@ export interface MaintenanceTicket {
   updatedAt: string;
   photos: MaintenancePhoto[];
   comments: MaintenanceComment[];
-  workflow?: MaintenanceWorkflow | null;
 }
 export interface MaintenanceStatus {
   storageReady: boolean;
@@ -70,9 +59,6 @@ export function createMaintenanceTicket(input: NewMaintenanceTicket) {
 }
 export function updateMaintenanceTicket(id: string, input: { status?: TicketStatus; assignee?: string; comment?: string }) {
   return request<MaintenanceTicket>(`/api/maintenance/tickets/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) });
-}
-export function updateMaintenanceWorkflow(id: string, action: string, data: Record<string, unknown> = {}) {
-  return request<MaintenanceTicket>(`/api/maintenance/tickets/${encodeURIComponent(id)}/workflow`, { method: "POST", body: JSON.stringify({ action, ...data }) });
 }
 export async function getMaintenancePhoto(ticketId: string, photoId: string): Promise<Blob> {
   const base = API_URL === "/" ? "" : (API_URL ?? "").replace(/\/$/, "");
