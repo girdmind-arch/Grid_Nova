@@ -1,7 +1,7 @@
 // Copy this file to config.h and fill it in. config.h is git-ignored: never commit real keys.
 #pragma once
 
-#define WIFI_SSID      "shreyanshu"
+#define WIFI_SSID      "Shreyanshu-5G"
 #define WIFI_PASSWORD  "24032008"
 
 // Your GridNova server, HTTPS only. Use the hostname without a scheme or path.
