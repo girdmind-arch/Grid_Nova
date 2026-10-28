@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import io
-import hashlib
 import os
 import re
 import sqlite3
@@ -20,12 +19,6 @@ MAX_TOTAL_BYTES = 450 * 1024 * 1024
 STATUSES = ("open", "triaged", "assigned", "in_progress", "waiting_parts", "resolved", "closed")
 CATEGORIES = ("ac_hvac", "grid_feeder", "solar", "battery", "wiring", "safety", "other")
 PRIORITIES = ("low", "normal", "high", "urgent")
-PROVIDERS = {
-    "grid_feeder": "GridNova Feeder Services (Simulation)", "solar": "GridNova SolarCare (Simulation)",
-    "battery": "GridNova Battery Support (Simulation)", "ac_hvac": "GridNova Climate Services (Simulation)",
-    "wiring": "GridNova Electrical Safety Services (Simulation)", "safety": "GridNova Electrical Safety Services (Simulation)",
-    "other": "GridNova General Maintenance (Simulation)",
-}
 
 
 def storage_path() -> Path | None:
@@ -80,31 +73,7 @@ def connect() -> sqlite3.Connection:
         issue_key TEXT PRIMARY KEY, incident_id TEXT NOT NULL, origin TEXT NOT NULL,
         ticket_id TEXT, dismissed_at TEXT, resolved_at TEXT
       );
-      CREATE TABLE IF NOT EXISTS maintenance_workflows (
-        ticket_id TEXT PRIMARY KEY REFERENCES tickets(id) ON DELETE CASCADE,
-        category TEXT NOT NULL, problem TEXT NOT NULL, assistance TEXT NOT NULL,
-        urgency TEXT NOT NULL, confidence REAL NOT NULL, review_needed INTEGER NOT NULL,
-        provider TEXT NOT NULL, state TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1,
-        report_signature TEXT NOT NULL DEFAULT '',
-        approved_version INTEGER, approved_by TEXT, approved_role TEXT, approved_at TEXT,
-        rejection TEXT, redirected_at TEXT, submitted_at TEXT, reference TEXT,
-        resolution_source TEXT, resolution_details TEXT, resolved_at TEXT
-      );
-      CREATE TABLE IF NOT EXISTS maintenance_workflow_history (
-        id TEXT PRIMARY KEY, ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
-        state TEXT NOT NULL, actor TEXT NOT NULL, details TEXT NOT NULL, created_at TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS maintenance_workflow_notes (
-        id TEXT PRIMARY KEY, ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
-        actor TEXT NOT NULL, body TEXT NOT NULL, evidence TEXT NOT NULL, created_at TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS maintenance_providers (
-        category TEXT PRIMARY KEY, name TEXT NOT NULL, simulated INTEGER NOT NULL DEFAULT 1
-      );
     """)
-    workflow_columns = {row["name"] for row in db.execute("PRAGMA table_info(maintenance_workflows)")}
-    if "report_signature" not in workflow_columns:
-        db.execute("ALTER TABLE maintenance_workflows ADD COLUMN report_signature TEXT NOT NULL DEFAULT ''")
     columns = {row["name"] for row in db.execute("PRAGMA table_info(tickets)")}
     if "severity" not in columns:
         # Serialize first-time schema upgrades across worker connections, then
@@ -119,10 +88,6 @@ def connect() -> sqlite3.Connection:
             db.rollback()
             db.close()
             raise
-    # Seed provider records only after migrations that need their own write lock.
-    for category, provider in PROVIDERS.items():
-        db.execute("INSERT OR IGNORE INTO maintenance_providers(category,name,simulated) VALUES(?,?,1)", (category, provider))
-    db.commit()
     db.execute("PRAGMA foreign_keys=ON")
     return db
 
@@ -182,64 +147,11 @@ def ticket_dict(db: sqlite3.Connection, row: sqlite3.Row) -> dict:
     comments = db.execute("SELECT id, author, body, created_at AS createdAt FROM comments WHERE ticket_id=? ORDER BY created_at", (row["id"],)).fetchall()
     return {**dict(row), "incidentId": row["incident_id"], "createdAt": row["created_at"], "updatedAt": row["updated_at"],
             "photos": [{"id": p["id"], "filename": p["filename"]} for p in photos],
-            "comments": [dict(c) for c in comments], "workflow": workflow_dict(db, row["id"])}
-
-
-def workflow_dict(db: sqlite3.Connection, ticket_id: str) -> dict | None:
-    row = db.execute("SELECT * FROM maintenance_workflows WHERE ticket_id=?", (ticket_id,)).fetchone()
-    if not row:
-        return None
-    return {**dict(row), "reviewNeeded": bool(row["review_needed"]),
-            "history": [dict(item) for item in db.execute("SELECT state,actor,details,created_at AS createdAt FROM maintenance_workflow_history WHERE ticket_id=? ORDER BY created_at,rowid", (ticket_id,))],
-            "notes": [dict(item) for item in db.execute("SELECT id,actor,body,evidence,created_at AS createdAt FROM maintenance_workflow_notes WHERE ticket_id=? ORDER BY created_at,rowid", (ticket_id,))]}
-
-
-def classify_ticket(ticket: sqlite3.Row) -> tuple[str, str, str, float, bool]:
-    category = ticket["category"] if ticket["category"] in CATEGORIES else "other"
-    problem = str(ticket["title"] or "").strip() or "Reported maintenance issue"
-    generic = {"issue", "problem", "maintenance issue", "repair needed", "help", "fault"}
-    specific = len(problem) >= 8 and problem.casefold().strip(" .!?") not in generic
-    assistance = {
-        "grid_feeder": "Inspect the campus grid connection, feeder path, and protection equipment.",
-        "solar": "Inspect the solar array, inverter, and generation equipment.",
-        "battery": "Inspect the battery system, controls, and battery management equipment.",
-        "ac_hvac": "Inspect the air conditioning and HVAC equipment and restore safe cooling.",
-        "wiring": "Inspect wiring and electrical connections; make the area safe before repair.",
-        "safety": "Assess the electrical safety concern and make the affected area safe.",
-        "other": "Review the report and identify the appropriate maintenance assistance.",
-    }[category]
-    review = category == "other" or not specific
-    confidence = 0.88 if not review else 0.25
-    return category, problem, assistance, confidence, review
-
-
-def ensure_workflow(db: sqlite3.Connection, ticket: sqlite3.Row) -> None:
-    signature = hashlib.sha256("\0".join(str(ticket[key] or "") for key in ("title", "description", "category", "priority", "location")).encode()).hexdigest()
-    current = db.execute("SELECT * FROM maintenance_workflows WHERE ticket_id=?", (ticket["id"],)).fetchone()
-    if current:
-        if current["report_signature"] == signature or current["state"] in {"redirected", "submitted", "in_progress", "resolved"}:
-            return
-        # If an existing report changed before handoff, refresh its suggestion and
-        # invalidate any approval that referred to the prior report version.
-        category, problem, assistance, confidence, review = classify_ticket(ticket)
-        provider = db.execute("SELECT name FROM maintenance_providers WHERE category=?", (category,)).fetchone()
-        state = "review_needed" if review else "pending_approval"
-        db.execute("UPDATE maintenance_workflows SET category=?,problem=?,assistance=?,urgency=?,confidence=?,review_needed=?,provider=?,state=?,version=version+1,report_signature=?,approved_version=NULL,approved_by=NULL,approved_role=NULL,approved_at=NULL,rejection=NULL WHERE ticket_id=?",
-                   (category, problem, assistance, ticket["priority"], confidence, int(review), provider["name"] if provider else PROVIDERS["other"], state, signature, ticket["id"]))
-        db.execute("INSERT INTO maintenance_workflow_history VALUES(?,?,?,?,?,?)", (str(uuid.uuid4()), ticket["id"], state, "GridNova classification", "The linked report changed before handoff; its route was refreshed and prior approval cleared.", now()))
-        return
-    category, problem, assistance, confidence, review = classify_ticket(ticket)
-    provider = db.execute("SELECT name FROM maintenance_providers WHERE category=?", (category,)).fetchone()
-    db.execute("INSERT INTO maintenance_workflows(ticket_id,category,problem,assistance,urgency,confidence,review_needed,provider,state,report_signature) VALUES(?,?,?,?,?,?,?,?,?,?)",
-               (ticket["id"], category, problem, assistance, ticket["priority"], confidence, int(review), provider["name"] if provider else PROVIDERS["other"], "review_needed" if review else "pending_approval", signature))
-    state = "review_needed" if review else "pending_approval"
-    db.execute("INSERT INTO maintenance_workflow_history VALUES(?,?,?,?,?,?)", (str(uuid.uuid4()), ticket["id"], state, "GridNova classification", "Initial suggested classification created from the existing report.", now()))
+            "comments": [dict(c) for c in comments]}
 
 
 def list_tickets(user) -> list[dict]:
     with database() as db:
-        for ticket in db.execute("SELECT * FROM tickets").fetchall():
-            ensure_workflow(db, ticket)
         if user.role == "operator":
             rows = db.execute("SELECT * FROM tickets ORDER BY updated_at DESC").fetchall()
         elif user.role == "technician":
@@ -252,9 +164,6 @@ def list_tickets(user) -> list[dict]:
 def get_ticket(ticket_id: str) -> dict | None:
     with database() as db:
         row = db.execute("SELECT * FROM tickets WHERE id=?", (ticket_id,)).fetchone()
-        if row:
-            ensure_workflow(db, row)
-            row = db.execute("SELECT * FROM tickets WHERE id=?", (ticket_id,)).fetchone()
         return ticket_dict(db, row) if row else None
 
 
@@ -283,94 +192,10 @@ def create_ticket(user, *, title: str, description: str, category: str, priority
         db.execute("INSERT INTO tickets (id,title,description,category,priority,status,source,incident_id,location,reporter,assignee,created_at,updated_at,severity) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                    (ticket_id, title.strip(), description.strip(), category, priority, "open", source,
                     (incident_id or "").strip()[:80] or None, location.strip(), user.name, None, stamp, stamp, None))
-        created = db.execute("SELECT * FROM tickets WHERE id=?", (ticket_id,)).fetchone()
-        ensure_workflow(db, created)
         for name, data in prepared:
             db.execute("INSERT INTO photos VALUES (?,?,?,?)", (str(uuid.uuid4()), ticket_id, name, data))
         row = db.execute("SELECT * FROM tickets WHERE id=?", (ticket_id,)).fetchone()
         return ticket_dict(db, row)
-
-
-def workflow_action(ticket_id: str, actor, action: str, data: dict) -> dict | None:
-    allowed = {"approve", "reject", "withdraw", "revise", "redirect", "submit", "progress", "resolve"}
-    if action not in allowed:
-        raise ValueError("Choose a valid workflow action.")
-    with database() as db:
-        db.execute("BEGIN IMMEDIATE")
-        ticket = db.execute("SELECT * FROM tickets WHERE id=?", (ticket_id,)).fetchone()
-        if not ticket:
-            return None
-        ensure_workflow(db, ticket)
-        flow = db.execute("SELECT * FROM maintenance_workflows WHERE ticket_id=?", (ticket_id,)).fetchone()
-        stamp, role = now(), actor.role
-        def record(state: str, details: str):
-            db.execute("UPDATE maintenance_workflows SET state=? WHERE ticket_id=?", (state, ticket_id))
-            db.execute("INSERT INTO maintenance_workflow_history VALUES(?,?,?,?,?,?)", (str(uuid.uuid4()), ticket_id, state, actor.name, details[:2000], stamp))
-        owner = ticket["reporter"].lower() == actor.name.lower()
-        operator = role == "operator"
-        if action in {"approve", "reject", "withdraw"}:
-            if not (owner and role in {"viewer", "operator"} or operator):
-                raise PermissionError("Only the report owner or an operator can approve or reject this workflow.")
-            if action == "withdraw":
-                if flow["state"] != "approved": raise ValueError("There is no active approval to withdraw.")
-                db.execute("UPDATE maintenance_workflows SET approved_version=NULL,approved_by=NULL,approved_role=NULL,approved_at=NULL WHERE ticket_id=?", (ticket_id,))
-                record("withdrawn", "Previously recorded approval was withdrawn.")
-            elif action == "approve":
-                if flow["state"] not in {"pending_approval", "review_needed", "rejected", "withdrawn"}:
-                    raise ValueError("This workflow is no longer awaiting approval.")
-                if flow["review_needed"]:
-                    raise ValueError("An operator must review and correct the suggested route before approval.")
-                db.execute("UPDATE maintenance_workflows SET approved_version=version,approved_by=?,approved_role=?,approved_at=?,rejection=NULL WHERE ticket_id=?", (actor.name, role, stamp, ticket_id))
-                record("approved", f"Version {flow['version']} approved: {flow['category']} · {flow['problem']} · {flow['provider']}.")
-            else:
-                if flow["state"] not in {"pending_approval", "review_needed"}:
-                    raise ValueError("This workflow is no longer awaiting a decision.")
-                reason = str(data.get("reason", "")).strip()[:500]
-                db.execute("UPDATE maintenance_workflows SET approved_version=NULL,approved_by=NULL,approved_role=NULL,approved_at=NULL,rejection=? WHERE ticket_id=?", (reason or "Approval rejected.", ticket_id))
-                record("rejected", reason or "Approval rejected.")
-        elif action == "revise":
-            if not operator:
-                raise PermissionError("Only an operator can correct a suggested classification or destination.")
-            if flow["state"] not in {"pending_approval", "review_needed", "rejected", "withdrawn", "approved"}:
-                raise ValueError("Classification can only be revised before the simulated handoff starts.")
-            category = str(data.get("category", "")); provider = str(data.get("provider", ""))
-            if category not in CATEGORIES or not db.execute("SELECT 1 FROM maintenance_providers WHERE category=? AND name=? AND simulated=1", (category, provider)).fetchone():
-                raise ValueError("Choose an existing category and its configured simulated provider.")
-            problem = str(data.get("problem", "")).strip()[:240]
-            assistance = str(data.get("assistance", "")).strip()[:500]
-            if not problem or not assistance: raise ValueError("Add the specific problem and assistance needed.")
-            confidence = max(0.0, min(1.0, float(data.get("confidence", 0.8))))
-            review = bool(data.get("reviewNeeded", False))
-            db.execute("UPDATE maintenance_workflows SET category=?,problem=?,assistance=?,confidence=?,review_needed=?,provider=?,version=version+1,approved_version=NULL,approved_by=NULL,approved_role=NULL,approved_at=NULL,rejection=NULL WHERE ticket_id=?", (category, problem, assistance, confidence, int(review), provider, ticket_id))
-            record("review_needed" if review else "pending_approval", "Operator updated the proposed classification and destination; prior approval was cleared.")
-        else:
-            if not operator and not owner and role != "technician":
-                raise PermissionError("You cannot update this workflow.")
-            if action == "redirect":
-                if flow["state"] != "approved" or flow["approved_version"] != flow["version"]: raise ValueError("A current approval is required before opening the simulated destination.")
-                db.execute("UPDATE maintenance_workflows SET redirected_at=? WHERE ticket_id=?", (stamp,ticket_id)); record("redirected", "Opened the in-app simulated provider destination.")
-            elif action == "submit":
-                if flow["state"] != "redirected" or flow["approved_version"] != flow["version"]: raise ValueError("Open the approved simulated destination before recording submission.")
-                db.execute("UPDATE maintenance_workflows SET submitted_at=?,reference=? WHERE ticket_id=?", (stamp, str(data.get("reference", "")).strip()[:120] or None, ticket_id)); record("submitted", "User recorded submission through the simulated handoff.")
-            elif action == "progress":
-                if flow["state"] not in {"submitted", "in_progress"}: raise ValueError("Record submission before adding provider progress.")
-                note = str(data.get("note", "")).strip()[:2000]; evidence = str(data.get("evidence", "")).strip()[:1000]
-                if not note and not evidence: raise ValueError("Add a progress note or evidence.")
-                db.execute("INSERT INTO maintenance_workflow_notes VALUES(?,?,?,?,?,?)", (str(uuid.uuid4()),ticket_id,actor.name,note,evidence,stamp))
-                if data.get("reference"): db.execute("UPDATE maintenance_workflows SET reference=? WHERE ticket_id=?", (str(data["reference"]).strip()[:120],ticket_id))
-                if flow["state"] in {"submitted","in_progress"}: record("in_progress", note or "Progress evidence added.")
-            elif action == "resolve":
-                if flow["state"] not in {"submitted", "in_progress"}: raise ValueError("Only a submitted handoff can be resolved.")
-                if role == "technician" and (str(ticket["assignee"] or "").lower() != actor.name.lower()): raise PermissionError("Only an assigned technician can record a provider update.")
-                details = str(data.get("details", "")).strip()[:2000]
-                source = str(data.get("source", "")).strip()
-                if source not in {"user_confirmation","operator_confirmation","provider_update"} or not details: raise ValueError("Provide resolution details and a valid confirmation source.")
-                if source == "provider_update" and role != "technician": raise PermissionError("A provider update must be recorded by an assigned technician.")
-                if source == "operator_confirmation" and not operator: raise PermissionError("Only an operator can confirm resolution on behalf of GridNova.")
-                if source == "user_confirmation" and not (owner or operator): raise PermissionError("Only the report owner or an operator can confirm resolution.")
-                db.execute("UPDATE maintenance_workflows SET resolution_source=?,resolution_details=?,resolved_at=? WHERE ticket_id=?", (source,details,stamp,ticket_id)); record("resolved", f"Resolution confirmed via {source}: {details}")
-        row = db.execute("SELECT * FROM tickets WHERE id=?", (ticket_id,)).fetchone()
-        return ticket_dict(db,row)
 
 
 def update_ticket(ticket_id: str, *, status: str | None, assignee: str | None,
@@ -474,7 +299,6 @@ def sync_grid_issue(issue: dict | None) -> dict | None:
         else:
             db.execute("INSERT INTO issue_sync (issue_key,incident_id,origin,ticket_id) VALUES (?,?,?,?)",
                        (issue_key, incident_id, origin, ticket["id"]))
-        ensure_workflow(db, ticket)
         return ticket_dict(db, ticket)
 
 

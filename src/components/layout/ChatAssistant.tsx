@@ -78,7 +78,7 @@ export function ChatAssistant() {
                 </div>
                 <p className="text-sm font-semibold text-fg">What would you like to know?</p>
                 <p className="mt-1 text-sm leading-relaxed text-fg-muted">
-                  I can explain campus readings and decisions. For a maintenance report you own, say “approve maintenance ticket” followed by its ID to approve the current proposed route.
+                  I can explain live campus readings, agent roles, forecasts and past decisions.
                 </p>
                 <div className="mt-5 space-y-2">
                   {starters.map((starter) => (
