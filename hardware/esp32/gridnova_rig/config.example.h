@@ -1,16 +1,16 @@
 // Copy this file to config.h and fill it in. config.h is git-ignored: never commit real keys.
 #pragma once
 
-#define WIFI_SSID      "your-wifi"
-#define WIFI_PASSWORD  "your-wifi-password"
+#define WIFI_SSID      "shreyanshu"
+#define WIFI_PASSWORD  "24032008"
 
 // Your GridNova server, HTTPS only. Use the hostname without a scheme or path.
-#define SERVER_HOST    "your-app.up.railway.app"
+#define SERVER_HOST    "gridnova.up.railway.app"
 #define SERVER_PORT    443
 
 // Must match an entry in the server's GRIDNOVA_DEVICE_KEYS ("<id>:<key>").
 #define DEVICE_ID      "esp32-demo-01"
-#define DEVICE_KEY     "replace-with-the-24-plus-character-key"
+#define DEVICE_KEY     "46b6387e7998a66df1c8d5b2f0913e909c76e06560216975"
 
 // Root certificate of the server's TLS chain (PEM). The sketch refuses to talk to a server it cannot verify;
 // there is deliberately no "insecure" switch. Get the chain's root with:  openssl s_client -showcerts -connect HOST:443
