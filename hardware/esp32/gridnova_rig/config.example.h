@@ -23,15 +23,15 @@ PASTE THE ROOT CERTIFICATE HERE
 // ---- Pins for the recommended parts list (see hardware/README.md). Check every one against YOUR wiring. ----
 // Source selector: ONE 5 V SPDT relay module. Relay OFF (de-energised) = NC contact = wall adapter.
 //                  Relay ON = NO contact = power bank. COM goes to the INA219's VIN+.
-#define PIN_RELAY             25
+#define PIN_RELAY             15
 // Most relay modules switch ON when IN is pulled LOW ("active low"). Measure yours with a multimeter:
 // set to 1 if the relay clicks ON with IN at 0 V, 0 if it clicks ON with IN at 3.3 V.
 #define RELAY_ACTIVE_LOW      1
 
 // LED branches: logic-level MOSFET load-switch modules (SIG pin), each with a 10 kΩ pull-down to GND.
-#define PIN_LOAD_CRITICAL     16
-#define PIN_LOAD_HOSTEL       17
-#define PIN_LOAD_LIBRARY      18
+#define PIN_LOAD_CRITICAL     18
+#define PIN_LOAD_HOSTEL       19
+#define PIN_LOAD_LIBRARY      25
 
 // Emergency-stop button: normally-open, between this pin and GND (internal pull-up). Pressed = stop.
 #define PIN_ESTOP_BUTTON       4
@@ -44,5 +44,5 @@ PASTE THE ROOT CERTIFICATE HERE
 // Adapter sense: a voltage divider from the adapter's +5 V (after its fuse) to this input:
 //   adapter +5 V --[20 kΩ]--+--[10 kΩ]-- GND        +  --> GPIO 34 (input-only ADC pin)
 // 5 V becomes 1.67 V at the pin. Set to -1 if you did not fit the divider.
-#define PIN_ADAPTER_SENSE     34
+#define PIN_ADAPTER_SENSE     -1
 #define SENSE_DIVIDER_RATIO   3.0f   // (20 k + 10 k) / 10 k
