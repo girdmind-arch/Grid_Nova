@@ -6,11 +6,11 @@
 
 // Your GridNova server, HTTPS only. Use the hostname without a scheme or path.
 #define SERVER_HOST    "gridnova.up.railway.app"
-#define SERVER_PORT    443
+#define SERVER_PORT    "443"
 
 // Must match an entry in the server's GRIDNOVA_DEVICE_KEYS ("<id>:<key>").
 #define DEVICE_ID      "esp32-demo-01"
-#define DEVICE_KEY     "46b6387e7998a66df1c8d5b2f0913e909c76e06560216975"
+#define DEVICE_KEY     "f4489a426d9f85be1fec579b40a8c94969361d50fa282478025c0bb479e4c8d2"
 
 // Root certificate of the server's TLS chain (PEM). The sketch refuses to talk to a server it cannot verify;
 // there is deliberately no "insecure" switch. Get the chain's root with:  openssl s_client -showcerts -connect HOST:443
