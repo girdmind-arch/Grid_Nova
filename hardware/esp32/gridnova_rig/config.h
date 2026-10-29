@@ -10,7 +10,7 @@
 
 // Must match an entry in the server's GRIDNOVA_DEVICE_KEYS ("<id>:<key>").
 #define DEVICE_ID      "esp32-demo-01"
-#define DEVICE_KEY     "f4489a426d9f85be1fec579b40a8c94969361d50fa282478025c0bb479e4c8d2"
+#define DEVICE_KEY     "b637a5a0642ddaaeeb1b37fcc37aa1692cbcdb316a605141a70291de840139c2"
 
 // Root certificate of the server's TLS chain (PEM). The sketch refuses to talk to a server it cannot verify;
 // there is deliberately no "insecure" switch. Get the chain's root with:  openssl s_client -showcerts -connect HOST:443
