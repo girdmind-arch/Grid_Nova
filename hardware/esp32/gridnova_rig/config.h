@@ -6,7 +6,7 @@
 
 // Your GridNova server, HTTPS only. Use the hostname without a scheme or path.
 #define SERVER_HOST    "gridnova.up.railway.app"
-#define SERVER_PORT    "443"
+#define SERVER_PORT    443
 
 // Must match an entry in the server's GRIDNOVA_DEVICE_KEYS ("<id>:<key>").
 #define DEVICE_ID      "esp32-demo-01"
