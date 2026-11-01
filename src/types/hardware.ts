@@ -17,8 +17,8 @@ export interface RigReading {
 
 export interface RigCommand {
   id: string;
-  type: "select_source" | "set_load" | "estop" | "clear_estop";
-  params: Record<string, string | boolean>;
+  type: "select_source" | "set_load" | "set_brightness" | "estop" | "clear_estop";
+  params: Record<string, string | boolean | number>;
   origin: "operator" | "scenario" | "system";
   status: CommandStatus;
   reason: string | null;
@@ -47,6 +47,8 @@ export interface HardwareState {
     firmware: string | null;
     source: SourceName | "none" | null;
     loads: Record<string, boolean>;
+    /** Requested/applied PWM duty per LED branch, 0 (off) to 255 (full brightness). */
+    brightness?: Record<string, number>;
     readings: { adapter: RigReading | null; battery: RigReading | null; output?: RigReading | null };
     /** Adapter sense (voltage divider): present = the wall adapter is supplying (debounced). */
     adapter?: { present: boolean | null; senseV: number | null; sensed: boolean };
