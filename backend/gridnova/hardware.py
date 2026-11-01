@@ -87,24 +87,24 @@ SOC_UNKNOWN = {
 
 CAPABILITIES = {
     "grid_outage": {
-        "hardware": "supported",
+        "hardware": "approximation",
         "approval": True,
-        "summary": "Unplugging the rig's wall adapter starts this scenario by itself. The rig moves to the power bank at once when armed (automatic transfer); shedding non-essential LED branches waits for the operator's approval, and never goes below the power bank's keep-alive current. Plugging the adapter back in ends it.",
+        "summary": "Single-source tabletop representation: keeps the critical LED on and switches off noncritical LED branches after operator approval. No alternate source transfer is possible in this setup.",
     },
     "heatwave": {
         "hardware": "approximation",
         "approval": False,
-        "summary": "Approximates higher demand by switching on LED branches that are off. If every branch is already on there is nothing to add. This is not air conditioning or pre-cooling.",
+        "summary": "Turns on available noncritical LED branches to represent increased demand. This is a visual approximation, not physical cooling or PWM dimming.",
     },
     "line_failure": {
-        "hardware": "simulated_only",
+        "hardware": "approximation",
         "approval": False,
-        "summary": "Rerouting needs separately switched branches and a real alternate low-voltage path. This build has neither, so it runs in the simulation only.",
+        "summary": "Displays a failed-section pattern: the library LED is off while critical, hostel, and extra remain on. It does not reroute electrical power.",
     },
     "cloud_cover": {
-        "hardware": "software_only",
+        "hardware": "approximation",
         "approval": False,
-        "summary": "This build has no solar panel. The scenario is simulated; the hardware is not told about it and no solar readings are invented.",
+        "summary": "Displays a fixed LED pattern for a generation-shortfall scenario: critical and hostel stay on while library and extra are off. No solar panel or solar measurement is present.",
     },
 }
 
@@ -704,6 +704,8 @@ class HardwareService:
         if type_ == "select_source":
             if params.get("source") not in SOURCES:
                 raise HWError(422, f"source must be one of: {', '.join(SOURCES)}.")
+            if params.get("source") == "powerbank":
+                raise HWError(409, "This single-source demo has no power bank connected; source switching is disabled.")
             return {"source": params["source"]}
         if type_ == "set_load":
             load, on = params.get("load"), params.get("on")
@@ -758,8 +760,8 @@ class HardwareService:
     def capabilities(self) -> dict:
         return {
             "scenarios": CAPABILITIES,
-            "commands": ["select_source", "set_load"],
-            "sources": list(SOURCES),
+            "commands": ["set_load"],
+            "sources": ["adapter"],
             "loads": [{"name": n, "essential": n in ESSENTIAL} for n in self.branches()],
             "stateOfCharge": "unknown",
             "scale": "tabletop-usb",
@@ -775,11 +777,11 @@ class HardwareService:
         }
 
     def plan_for_scenario(self, type_: str, severity: int, incident_id: str, auto_transfer: bool = False) -> dict:
-        """Called when a scenario starts. Never raises: the simulation always runs regardless.
+        """Translate a scenario into a named LED pattern for a single-source tabletop demo.
 
-        auto_transfer: the rig itself reported the outage (adapter unplugged). Moving to the power bank only
-        restores supply, so it goes out at once, like an automatic transfer switch; shedding branches still
-        waits for the operator's approval.
+        This is a transparent scenario-to-indicator mapping, not the campus agent's kW plan.
+        The digital-twin decision remains authoritative for the simulation; hardware actions are
+        constrained to the four low-voltage LED branches and the existing on/off command protocol.
         """
         with self._lock:
             self.housekeeping()
@@ -789,67 +791,50 @@ class HardwareService:
                 return self._result("simulated_only", "Unknown scenario.")
             if self.mode != "hardware-demo":
                 return self._result("simulated_only", "Hardware demo mode is off. Simulation only.")
-            if type_ == "cloud_cover":
-                return self._result("software_only", cap["summary"])
-            if type_ == "line_failure":
-                return self._result("unsupported_on_hardware", cap["summary"])
             if not self.armed:
                 return self._result("simulated_only", "Hardware is not armed, so nothing was sent to the rig.")
             if not self._fresh() or self.tel is None:
                 return self._result("simulated_only", "No fresh readings from the rig, so nothing was sent.")
-            loads = self.tel.loads
+
             have = self.branches()
+            current = dict(self.tel.loads)
+            patterns = {
+                # Symbolic indicator patterns; LEDs do not model real solar generation or feeders.
+                "cloud_cover": {"critical": True, "hostel": True, "library": False, "extra": False},
+                "heatwave": {"critical": True, "hostel": True, "library": True, "extra": True},
+                "line_failure": {"critical": True, "hostel": True, "library": False, "extra": True},
+                "grid_outage": {"critical": True, "hostel": False, "library": False, "extra": False},
+            }
+            target = patterns[type_]
             sc = Scenario(incident_id, type_, severity)
             specs: list[tuple[str, dict]] = []
-            now_spec: list[tuple[str, dict]] = []
-            if type_ == "heatwave":
-                n = min(3, math.ceil(severity / 2))
-                off = [name for name in ADD_ORDER if name in have and loads.get(name) is False][:n]
-                specs = [("set_load", {"load": name, "on": True}) for name in off]
-                sc.restore = [("set_load", {"load": name, "on": False}) for name in off]
-                if not specs:
-                    return self._result("simulated_only", "Every non-essential LED branch is already on, so there was nothing to add.")
-            else:  # grid_outage
-                transfer = [("select_source", {"source": "powerbank"})] if self.tel.source != "powerbank" else []
-                if auto_transfer:
-                    now_spec = transfer
-                else:
-                    specs = list(transfer)
-                # The firmware may already have switched over by itself (local automatic transfer while armed).
-                sc.restore = [("select_source", {"source": "adapter"})] if (transfer or auto_transfer) else []
-                if auto_transfer:
-                    sc.restore_now = list(sc.restore)
-                # Shed non-essential branches, but never so far that the power bank falls below its keep-alive
-                # current (it would switch itself off and take the critical branch with it). The learned rig
-                # model predicts the current of each step.
-                state = dict(loads)
-                shed = []
-                for n in [n for n in SHED_ORDER if n in have and loads.get(n) is True][: max(0, severity - 2)]:
-                    trial = {**state, n: False}
-                    if self.model.predict(state) >= KEEPALIVE_A > self.model.predict(trial):
-                        self._event(f"Kept the {n} branch on so the power bank stays above its {KEEPALIVE_A * 1000:.0f} mA keep-alive current.")
-                        break
-                    state, shed = trial, shed + [n]
-                specs += [("set_load", {"load": n, "on": False}) for n in shed]
-                sc.restore += [("set_load", {"load": n, "on": True}) for n in shed]
+            for name in ("critical", "hostel", "library", "extra"):
+                if name not in have or name not in target:
+                    continue
+                desired = target[name]
+                if current.get(name, False) == desired:
+                    continue
+                # Critical can only be switched on; it is never shed by this translator.
+                if name == "critical" and not desired:
+                    continue
+                specs.append(("set_load", {"load": name, "on": desired}))
+                sc.restore.append(("set_load", {"load": name, "on": bool(current.get(name, False))}))
+
+            if not specs:
+                return self._result("simulated_only", "The rig already displays this scenario's LED pattern; no command was needed.")
+
             hold = bool(cap["approval"])
             try:
-                made_now = [self._queue(t, p, "scenario", CMD_TTL_DEFAULT_S, incident=incident_id)[0] for t, p in now_spec]
                 made = [self._queue(t, p, "scenario", CMD_TTL_DEFAULT_S, incident=incident_id,
                                     status="awaiting_approval" if hold else "queued")[0] for t, p in specs]
             except HWError as e:
                 return self._result("simulated_only", e.message)
-            if made_now:
-                self._event(f"Automatic transfer to the power bank for {incident_id}: the adapter is not supplying.", "warning")
-            sc.command_ids, sc.awaiting_approval = [c.id for c in made_now + made], hold and bool(made)
+            sc.command_ids = [c.id for c in made]
+            sc.awaiting_approval = hold and bool(made)
             self.scenario = sc
-            self._event(f"{type_} plan for {incident_id}: {len(made)} command(s){' waiting for approval' if hold else ' queued'}.")
+            self._event(f"{type_} LED-pattern plan for {incident_id}: {len(made)} command(s){' waiting for approval' if hold else ' queued'}.")
             if hold and made:
-                msg = ("Switched the rig to the power bank; shedding branches waits for the operator's approval."
-                       if made_now else "The outage plan for the rig waits for the same operator approval as the simulation.")
-                return self._result("awaiting_approval", msg, sc.command_ids)
-            if made_now and not made:
-                return self._result("hardware_pending", "Switched the rig to the power bank. No branch needs shedding.", sc.command_ids)
+                return self._result("awaiting_approval", "The tabletop outage pattern keeps critical on; approve to display the outage pattern.", sc.command_ids)
             return self._result("hardware_pending", cap["summary"], sc.command_ids)
 
     def on_approval(self, incident_id: str | None, status: str) -> dict | None:
