@@ -23,6 +23,7 @@ export function useHardwareState() {
 export const COMMAND_LABEL: Record<string, string> = {
   select_source: "Source",
   set_load: "Load",
+  set_brightness: "Brightness",
   estop: "Emergency stop",
   clear_estop: "Clear emergency stop",
 };
@@ -46,6 +47,7 @@ function describe(c: RigCommand) {
   const p = c.params;
   if (c.type === "select_source") return `Source → ${p.source === "powerbank" ? "power bank" : "adapter"}`;
   if (c.type === "set_load") return `${String(p.load)} branch → ${p.on ? "on" : "off"}`;
+  if (c.type === "set_brightness") return `${String(p.load)} brightness → ${Math.round(Number(p.level) / 255 * 100)}%`;
   return COMMAND_LABEL[c.type];
 }
 
