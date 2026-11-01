@@ -18,7 +18,7 @@ Every device call carries `X-Device-Id` and `Authorization: Bearer <device key>`
 GRIDNOVA_DEVICE_KEYS ("esp32-demo-01:<24+ char secret>", comma separated); there is no default key.
 
 Safety model, summarised (the README has the long version):
-  * strict allow-list: select_source (adapter | powerbank) and set_load (named LED branches) only,
+  * strict allow-list: select_source (adapter | powerbank), set_load and set_brightness (named LED branches),
     plus estop / clear_estop. No GPIO numbers, no shell, nothing free-form.
   * physical control needs an operator to ARM (time limited). Arming drops on expiry, device loss,
     emergency stop or leaving hardware mode, and queued commands are cancelled with it.
@@ -56,7 +56,7 @@ LOADS = ("critical", "hostel", "library", "extra")  # named low-voltage LED bran
 ESSENTIAL = frozenset({"critical"})  # never commanded off
 SHED_ORDER = ("extra", "library", "hostel")  # first to go when shedding
 ADD_ORDER = ("extra", "library", "hostel")  # first to come on to approximate more demand
-COMMAND_TYPES = ("select_source", "set_load", "estop", "clear_estop")
+COMMAND_TYPES = ("select_source", "set_load", "set_brightness", "estop", "clear_estop")
 SCENARIOS = ("cloud_cover", "heatwave", "line_failure", "grid_outage")
 
 # ---------------------------------------------------------------- limits (tabletop, USB level)
@@ -89,22 +89,22 @@ CAPABILITIES = {
     "grid_outage": {
         "hardware": "supported",
         "approval": True,
-        "summary": "Unplugging the rig's wall adapter starts this scenario by itself. The rig moves to the power bank at once when armed (automatic transfer); shedding non-essential LED branches waits for the operator's approval, and never goes below the power bank's keep-alive current. Plugging the adapter back in ends it.",
+        "summary": "With both sources connected and the adapter-sense voltage divider fitted, unplugging the adapter starts automatic transfer while armed. Without that divider, use an explicit source-switch command. Load shedding waits for operator approval and respects the power bank keep-alive current.",
     },
     "heatwave": {
         "hardware": "approximation",
         "approval": False,
-        "summary": "Approximates increased demand by setting different PWM brightness levels on the rig's noncritical LED branches. This is not air conditioning or pre-cooling.",
+        "summary": "Approximates higher demand by increasing the PWM brightness of noncritical LED branches. This is a visual demo, not cooling or pre-cooling.",
     },
     "line_failure": {
-        "hardware": "simulated_only",
+        "hardware": "approximation",
         "approval": False,
-        "summary": "Rerouting needs separately switched branches and a real alternate low-voltage path. This build has neither, so it runs in the simulation only.",
+        "summary": "Dims the tabletop LED representing the affected zone. It does not reroute a real feeder or reproduce campus voltage.",
     },
     "cloud_cover": {
-        "hardware": "software_only",
+        "hardware": "approximation",
         "approval": False,
-        "summary": "This build has no solar panel. The scenario is simulated; the hardware is not told about it and no solar readings are invented.",
+        "summary": "Dims the noncritical tabletop LEDs to represent reduced generation. There is no solar panel or solar measurement in this demo.",
     },
 }
 
@@ -156,7 +156,7 @@ class Telemetry(BaseModel, extra="forbid"):
     adapterPresent: bool | None = None  # from the adapter-sense divider
     adapterSenseV: float | None = Field(None, ge=0, le=MAX_VOLTS, allow_inf_nan=False)
     loads: dict[str, bool]
-    brightness: dict[str, int] = Field(default_factory=dict)  # per-branch PWM duty, 0..255
+    brightness: dict[str, int] = Field(default_factory=dict)
     health: SensorHealth
     estop: bool = False
     uptimeS: int = Field(0, ge=0, le=2**31)
@@ -428,7 +428,7 @@ class HardwareService:
                 raise HWError(403, "deviceId does not match the signed-in device.")
             if set(t.loads) - set(LOADS):
                 raise HWError(422, f"Unknown load branch. Allowed: {', '.join(LOADS)}.")
-            if set(t.brightness) - set(LOADS) or any(not 0 <= x <= 255 for x in t.brightness.values()):
+            if set(t.brightness) - set(LOADS) or any(not 0 <= level <= 255 for level in t.brightness.values()):
                 raise HWError(422, "Brightness telemetry must use known branches and levels from 0 to 255.")
             for name, level in t.brightness.items():
                 if name in t.loads and t.loads[name] != (level > 0):
@@ -797,7 +797,8 @@ class HardwareService:
             "commandIds": ids or [],
         }
 
-    def plan_for_scenario(self, type_: str, severity: int, incident_id: str, auto_transfer: bool = False) -> dict:
+    def plan_for_scenario(self, type_: str, severity: int, incident_id: str, auto_transfer: bool = False,
+                          target_zone_id: str | None = None) -> dict:
         """Called when a scenario starts. Never raises: the simulation always runs regardless.
 
         auto_transfer: the rig itself reported the outage (adapter unplugged). Moving to the power bank only
@@ -812,29 +813,48 @@ class HardwareService:
                 return self._result("simulated_only", "Unknown scenario.")
             if self.mode != "hardware-demo":
                 return self._result("simulated_only", "Hardware demo mode is off. Simulation only.")
-            if type_ == "cloud_cover":
-                return self._result("software_only", cap["summary"])
-            if type_ == "line_failure":
-                return self._result("unsupported_on_hardware", cap["summary"])
             if not self.armed:
                 return self._result("simulated_only", "Hardware is not armed, so nothing was sent to the rig.")
             if not self._fresh() or self.tel is None:
                 return self._result("simulated_only", "No fresh readings from the rig, so nothing was sent.")
             loads = self.tel.loads
             have = self.branches()
+            brightness = self.tel.brightness
             sc = Scenario(incident_id, type_, severity)
             specs: list[tuple[str, dict]] = []
             now_spec: list[tuple[str, dict]] = []
-            if type_ == "heatwave":
+
+            def level_before(name: str) -> int:
+                return brightness.get(name, 255 if loads.get(name, False) else 0)
+
+            def set_level(name: str, level: int) -> None:
+                if name not in have or level_before(name) == level:
+                    return
+                # Critical is allowed to dim for a visual indicator, but never to turn fully off.
+                if name in ESSENTIAL:
+                    level = max(1, level)
+                specs.append(("set_brightness", {"load": name, "level": level}))
+                sc.restore.append(("set_brightness", {"load": name, "level": level_before(name)}))
+
+            if type_ == "cloud_cover":
+                # Visual-only generation-shortfall cue; no solar value is inferred or sent.
+                level = max(35, 255 - 44 * severity)
+                for name in ("hostel", "library", "extra"):
+                    set_level(name, level)
+            elif type_ == "heatwave":
                 n = min(3, math.ceil(severity / 2))
+                level = min(255, 85 + 34 * severity)
                 selected = [name for name in ADD_ORDER if name in have][:n]
-                # Scenario severity is translated to an 8-bit PWM level for the visual rig only.
-                level = max(64, min(255, round(64 + 19 * severity)))
-                before = {name: self.tel.brightness.get(name, 255 if loads.get(name) else 0) for name in selected}
-                specs = [("set_brightness", {"load": name, "level": level}) for name in selected if before[name] != level]
-                sc.restore = [("set_brightness", {"load": name, "level": before[name]}) for name in selected if before[name] != level]
+                for name in selected:
+                    set_level(name, level)
                 if not specs:
-                    return self._result("simulated_only", "The selected LED branches already match this scenario's brightness.")
+                    return self._result("simulated_only", "The selected branches already match this scenario's brightness.")
+            elif type_ == "line_failure":
+                # Collapse detailed campus zones onto the four named tabletop LEDs.
+                zone = (target_zone_id or "hostel-gh1").lower()
+                affected = ("hostel" if zone.startswith("hostel-") else "library" if zone == "library" else
+                            "critical" if zone.startswith("lab-") else "extra")
+                set_level(affected, 32 if affected != "critical" else 64)
             else:  # grid_outage
                 transfer = [("select_source", {"source": "powerbank"})] if self.tel.source != "powerbank" else []
                 if auto_transfer:
