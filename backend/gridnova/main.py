@@ -476,9 +476,11 @@ class LocationBody(BaseModel):
     lon: float = Field(ge=68, le=97.5)  # India's longitude range
 
 
-def _hardware_plan(type_: str, severity: int, incident_id: str, auto_transfer: bool = False) -> dict:
+def _hardware_plan(type_: str, severity: int, incident_id: str, auto_transfer: bool = False,
+                   target_zone_id: str | None = None) -> dict:
     try:
-        return hw.service.plan_for_scenario(type_, severity, incident_id, auto_transfer=auto_transfer)
+        return hw.service.plan_for_scenario(type_, severity, incident_id, auto_transfer=auto_transfer,
+                                            target_zone_id=target_zone_id)
     except Exception:
         logging.getLogger("gridnova.hardware").exception("hardware plan failed; simulation only")
         return {"dataSource": "simulation", "outcome": "simulated_only", "physicallyPerformed": False,
@@ -538,7 +540,7 @@ def inject(req: FaultRequest):
         "startedAt": iso(grid.at(f.started_hour)),
         "message": "Scenario started.",
         # Whether the rig was (or will be) involved. The simulation ran either way.
-        "hardware": _hardware_plan(req.type, req.severity, f.incident_id),
+        "hardware": _hardware_plan(req.type, req.severity, f.incident_id, target_zone_id=req.targetZoneId),
     }
 
 
