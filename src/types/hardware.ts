@@ -47,7 +47,7 @@ export interface HardwareState {
     firmware: string | null;
     source: SourceName | "none" | null;
     loads: Record<string, boolean>;
-    /** Requested/applied PWM duty per LED branch, 0 (off) to 255 (full brightness). */
+    /** Actual reported PWM duty for each LED branch, from 0 (off) to 255 (full brightness). */
     brightness?: Record<string, number>;
     readings: { adapter: RigReading | null; battery: RigReading | null; output?: RigReading | null };
     /** Adapter sense (voltage divider): present = the wall adapter is supplying (debounced). */
