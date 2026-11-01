@@ -87,24 +87,24 @@ SOC_UNKNOWN = {
 
 CAPABILITIES = {
     "grid_outage": {
-        "hardware": "approximation",
+        "hardware": "supported",
         "approval": True,
-        "summary": "Single-source tabletop representation: keeps the critical LED on and switches off noncritical LED branches after operator approval. No alternate source transfer is possible in this setup.",
+        "summary": "Unplugging the rig's wall adapter starts this scenario by itself. The rig moves to the power bank at once when armed (automatic transfer); shedding non-essential LED branches waits for the operator's approval, and never goes below the power bank's keep-alive current. Plugging the adapter back in ends it.",
     },
     "heatwave": {
         "hardware": "approximation",
         "approval": False,
-        "summary": "Turns on available noncritical LED branches to represent increased demand. This is a visual approximation, not physical cooling or PWM dimming.",
+        "summary": "Approximates increased demand by setting different PWM brightness levels on the rig's noncritical LED branches. This is not air conditioning or pre-cooling.",
     },
     "line_failure": {
-        "hardware": "approximation",
+        "hardware": "simulated_only",
         "approval": False,
-        "summary": "Displays a failed-section pattern: the library LED is off while critical, hostel, and extra remain on. It does not reroute electrical power.",
+        "summary": "Rerouting needs separately switched branches and a real alternate low-voltage path. This build has neither, so it runs in the simulation only.",
     },
     "cloud_cover": {
-        "hardware": "approximation",
+        "hardware": "software_only",
         "approval": False,
-        "summary": "Displays a fixed LED pattern for a generation-shortfall scenario: critical and hostel stay on while library and extra are off. No solar panel or solar measurement is present.",
+        "summary": "This build has no solar panel. The scenario is simulated; the hardware is not told about it and no solar readings are invented.",
     },
 }
 
@@ -156,6 +156,7 @@ class Telemetry(BaseModel, extra="forbid"):
     adapterPresent: bool | None = None  # from the adapter-sense divider
     adapterSenseV: float | None = Field(None, ge=0, le=MAX_VOLTS, allow_inf_nan=False)
     loads: dict[str, bool]
+    brightness: dict[str, int] = Field(default_factory=dict)  # per-branch PWM duty, 0..255
     health: SensorHealth
     estop: bool = False
     uptimeS: int = Field(0, ge=0, le=2**31)
@@ -168,15 +169,17 @@ class Ack(BaseModel, extra="forbid"):
     ts: float = Field(gt=1.5e9, lt=4.2e9, allow_inf_nan=False)
     source: Literal["adapter", "powerbank", "none"] | None = None
     loads: dict[str, bool] | None = None
+    brightness: dict[str, int] | None = None
 
 
 class CommandBody(BaseModel, extra="forbid"):
     """What an operator may ask for by hand. Anything else is refused by the schema."""
 
-    type: Literal["select_source", "set_load"]
+    type: Literal["select_source", "set_load", "set_brightness"]
     source: Literal["adapter", "powerbank"] | None = None
     load: Literal["critical", "hostel", "library", "extra"] | None = None
     on: bool | None = None
+    level: int | None = Field(None, ge=0, le=255)
     ttlS: int = Field(CMD_TTL_DEFAULT_S, ge=5, le=CMD_TTL_MAX_S)
     idempotencyKey: str | None = Field(None, min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.:-]+$")
 
@@ -425,6 +428,11 @@ class HardwareService:
                 raise HWError(403, "deviceId does not match the signed-in device.")
             if set(t.loads) - set(LOADS):
                 raise HWError(422, f"Unknown load branch. Allowed: {', '.join(LOADS)}.")
+            if set(t.brightness) - set(LOADS) or any(not 0 <= x <= 255 for x in t.brightness.values()):
+                raise HWError(422, "Brightness telemetry must use known branches and levels from 0 to 255.")
+            for name, level in t.brightness.items():
+                if name in t.loads and t.loads[name] != (level > 0):
+                    raise HWError(422, f"Brightness and on/off telemetry disagree for '{name}'.")
             if abs(now - t.ts) > MAX_SKEW_S:
                 raise HWError(422, f"Reading rejected: device clock is {abs(now - t.ts):.0f} s from server time (limit {MAX_SKEW_S:.0f} s). Sync NTP.")
             for name, rd, hl in (("adapter", t.adapter, t.health.ina219Adapter), ("battery", t.battery, t.health.ina219Battery),
@@ -560,6 +568,8 @@ class HardwareService:
                 c.verified = True
             elif c.type == "set_load" and t.loads.get(c.params["load"]) == c.params["on"]:
                 c.verified = True
+            elif c.type == "set_brightness" and t.brightness.get(c.params["load"]) == c.params["level"]:
+                c.verified = True
 
     # ------------------------------------------------------------ device command channel
     def _control(self, now: float) -> dict:
@@ -622,11 +632,13 @@ class HardwareService:
                 self.last_source_cmd = now
             if a.result == "applied":
                 # The device's own report; the next telemetry still has to confirm it (see _verify).
-                said = (a.source == c.params.get("source")) if c.type == "select_source" else (
-                    a.loads is not None and a.loads.get(c.params.get("load")) == c.params.get("on"))
-                if (a.source or a.loads) and not said:
+                said = ((a.source == c.params.get("source")) if c.type == "select_source" else
+                        (a.loads is not None and a.loads.get(c.params.get("load")) == c.params.get("on")) if c.type == "set_load" else
+                        (a.brightness is not None and a.brightness.get(c.params.get("load")) == c.params.get("level")))
+                if (a.source or a.loads or a.brightness) and not said:
                     c.note = "The acknowledged state differs from the request: waiting for telemetry."
             what = (f"source → {'power bank' if c.params.get('source') == 'powerbank' else 'adapter'}" if c.type == "select_source"
+                    else f"{c.params.get('load')} brightness → {round(c.params.get('level', 0) * 100 / 255)}%" if c.type == "set_brightness"
                     else f"{c.params.get('load')} branch {'on' if c.params.get('on') else 'off'}" if c.type == "set_load"
                     else c.type.replace("_", " "))
             verb = {"applied": "did", "rejected": "refused", "failed": "failed"}[a.result]
@@ -704,8 +716,6 @@ class HardwareService:
         if type_ == "select_source":
             if params.get("source") not in SOURCES:
                 raise HWError(422, f"source must be one of: {', '.join(SOURCES)}.")
-            if params.get("source") == "powerbank":
-                raise HWError(409, "This single-source demo has no power bank connected; source switching is disabled.")
             return {"source": params["source"]}
         if type_ == "set_load":
             load, on = params.get("load"), params.get("on")
@@ -716,6 +726,15 @@ class HardwareService:
             if load in ESSENTIAL and on is False:
                 raise HWError(422, "The critical branch can never be switched off by a command.")
             return {"load": load, "on": on}
+        if type_ == "set_brightness":
+            load, level = params.get("load"), params.get("level")
+            if load not in LOADS or not isinstance(level, int) or isinstance(level, bool) or not 0 <= level <= 255:
+                raise HWError(422, f"set_brightness needs a load ({', '.join(LOADS)}) and level (0–255).")
+            if self.tel is not None and load not in self.tel.loads:
+                raise HWError(422, f"This rig has no '{load}' branch (it has: {', '.join(self.branches())}).")
+            if load in ESSENTIAL and level == 0:
+                raise HWError(422, "The critical branch can never be set to zero brightness by a command.")
+            return {"load": load, "level": level}
         if type_ in ("estop", "clear_estop"):
             return {}
         raise HWError(422, "That command is not on the allow-list.")
@@ -750,7 +769,9 @@ class HardwareService:
         """A hand-issued command from a signed-in operator (still needs the rig armed)."""
         with self._lock:
             self.housekeeping()
-            params = {"source": body.source} if body.type == "select_source" else {"load": body.load, "on": body.on}
+            params = ({"source": body.source} if body.type == "select_source" else
+                      {"load": body.load, "on": body.on} if body.type == "set_load" else
+                      {"load": body.load, "level": body.level})
             c, dup = self._queue(body.type, params, "operator", body.ttlS, idem=body.idempotencyKey)
             if not dup:
                 self._event(f"{who} queued {c.type} {c.params}.")
@@ -760,8 +781,8 @@ class HardwareService:
     def capabilities(self) -> dict:
         return {
             "scenarios": CAPABILITIES,
-            "commands": ["set_load"],
-            "sources": ["adapter"],
+            "commands": ["select_source", "set_load", "set_brightness"],
+            "sources": list(SOURCES),
             "loads": [{"name": n, "essential": n in ESSENTIAL} for n in self.branches()],
             "stateOfCharge": "unknown",
             "scale": "tabletop-usb",
@@ -777,11 +798,11 @@ class HardwareService:
         }
 
     def plan_for_scenario(self, type_: str, severity: int, incident_id: str, auto_transfer: bool = False) -> dict:
-        """Translate a scenario into a named LED pattern for a single-source tabletop demo.
+        """Called when a scenario starts. Never raises: the simulation always runs regardless.
 
-        This is a transparent scenario-to-indicator mapping, not the campus agent's kW plan.
-        The digital-twin decision remains authoritative for the simulation; hardware actions are
-        constrained to the four low-voltage LED branches and the existing on/off command protocol.
+        auto_transfer: the rig itself reported the outage (adapter unplugged). Moving to the power bank only
+        restores supply, so it goes out at once, like an automatic transfer switch; shedding branches still
+        waits for the operator's approval.
         """
         with self._lock:
             self.housekeeping()
@@ -791,50 +812,70 @@ class HardwareService:
                 return self._result("simulated_only", "Unknown scenario.")
             if self.mode != "hardware-demo":
                 return self._result("simulated_only", "Hardware demo mode is off. Simulation only.")
+            if type_ == "cloud_cover":
+                return self._result("software_only", cap["summary"])
+            if type_ == "line_failure":
+                return self._result("unsupported_on_hardware", cap["summary"])
             if not self.armed:
                 return self._result("simulated_only", "Hardware is not armed, so nothing was sent to the rig.")
             if not self._fresh() or self.tel is None:
                 return self._result("simulated_only", "No fresh readings from the rig, so nothing was sent.")
-
+            loads = self.tel.loads
             have = self.branches()
-            current = dict(self.tel.loads)
-            patterns = {
-                # Symbolic indicator patterns; LEDs do not model real solar generation or feeders.
-                "cloud_cover": {"critical": True, "hostel": True, "library": False, "extra": False},
-                "heatwave": {"critical": True, "hostel": True, "library": True, "extra": True},
-                "line_failure": {"critical": True, "hostel": True, "library": False, "extra": True},
-                "grid_outage": {"critical": True, "hostel": False, "library": False, "extra": False},
-            }
-            target = patterns[type_]
             sc = Scenario(incident_id, type_, severity)
             specs: list[tuple[str, dict]] = []
-            for name in ("critical", "hostel", "library", "extra"):
-                if name not in have or name not in target:
-                    continue
-                desired = target[name]
-                if current.get(name, False) == desired:
-                    continue
-                # Critical can only be switched on; it is never shed by this translator.
-                if name == "critical" and not desired:
-                    continue
-                specs.append(("set_load", {"load": name, "on": desired}))
-                sc.restore.append(("set_load", {"load": name, "on": bool(current.get(name, False))}))
-
-            if not specs:
-                return self._result("simulated_only", "The rig already displays this scenario's LED pattern; no command was needed.")
-
+            now_spec: list[tuple[str, dict]] = []
+            if type_ == "heatwave":
+                n = min(3, math.ceil(severity / 2))
+                selected = [name for name in ADD_ORDER if name in have][:n]
+                # Scenario severity is translated to an 8-bit PWM level for the visual rig only.
+                level = max(64, min(255, round(64 + 19 * severity)))
+                before = {name: self.tel.brightness.get(name, 255 if loads.get(name) else 0) for name in selected}
+                specs = [("set_brightness", {"load": name, "level": level}) for name in selected if before[name] != level]
+                sc.restore = [("set_brightness", {"load": name, "level": before[name]}) for name in selected if before[name] != level]
+                if not specs:
+                    return self._result("simulated_only", "The selected LED branches already match this scenario's brightness.")
+            else:  # grid_outage
+                transfer = [("select_source", {"source": "powerbank"})] if self.tel.source != "powerbank" else []
+                if auto_transfer:
+                    now_spec = transfer
+                else:
+                    specs = list(transfer)
+                # The firmware may already have switched over by itself (local automatic transfer while armed).
+                sc.restore = [("select_source", {"source": "adapter"})] if (transfer or auto_transfer) else []
+                if auto_transfer:
+                    sc.restore_now = list(sc.restore)
+                # Shed non-essential branches, but never so far that the power bank falls below its keep-alive
+                # current (it would switch itself off and take the critical branch with it). The learned rig
+                # model predicts the current of each step.
+                state = dict(loads)
+                shed = []
+                for n in [n for n in SHED_ORDER if n in have and loads.get(n) is True][: max(0, severity - 2)]:
+                    trial = {**state, n: False}
+                    if self.model.predict(state) >= KEEPALIVE_A > self.model.predict(trial):
+                        self._event(f"Kept the {n} branch on so the power bank stays above its {KEEPALIVE_A * 1000:.0f} mA keep-alive current.")
+                        break
+                    state, shed = trial, shed + [n]
+                specs += [("set_load", {"load": n, "on": False}) for n in shed]
+                sc.restore += [("set_load", {"load": n, "on": True}) for n in shed]
             hold = bool(cap["approval"])
             try:
+                made_now = [self._queue(t, p, "scenario", CMD_TTL_DEFAULT_S, incident=incident_id)[0] for t, p in now_spec]
                 made = [self._queue(t, p, "scenario", CMD_TTL_DEFAULT_S, incident=incident_id,
                                     status="awaiting_approval" if hold else "queued")[0] for t, p in specs]
             except HWError as e:
                 return self._result("simulated_only", e.message)
-            sc.command_ids = [c.id for c in made]
-            sc.awaiting_approval = hold and bool(made)
+            if made_now:
+                self._event(f"Automatic transfer to the power bank for {incident_id}: the adapter is not supplying.", "warning")
+            sc.command_ids, sc.awaiting_approval = [c.id for c in made_now + made], hold and bool(made)
             self.scenario = sc
-            self._event(f"{type_} LED-pattern plan for {incident_id}: {len(made)} command(s){' waiting for approval' if hold else ' queued'}.")
+            self._event(f"{type_} plan for {incident_id}: {len(made)} command(s){' waiting for approval' if hold else ' queued'}.")
             if hold and made:
-                return self._result("awaiting_approval", "The tabletop outage pattern keeps critical on; approve to display the outage pattern.", sc.command_ids)
+                msg = ("Switched the rig to the power bank; shedding branches waits for the operator's approval."
+                       if made_now else "The outage plan for the rig waits for the same operator approval as the simulation.")
+                return self._result("awaiting_approval", msg, sc.command_ids)
+            if made_now and not made:
+                return self._result("hardware_pending", "Switched the rig to the power bank. No branch needs shedding.", sc.command_ids)
             return self._result("hardware_pending", cap["summary"], sc.command_ids)
 
     def on_approval(self, incident_id: str | None, status: str) -> dict | None:
@@ -910,6 +951,7 @@ class HardwareService:
                 "firmware": t.firmware if t else None,
                 "source": t.source if t else None,
                 "loads": t.loads if t else {},
+                "brightness": t.brightness if t else {},
                 "readings": {
                     "adapter": self._reading(t.adapter) if t else None,
                     "battery": self._reading(t.battery) if t else None,
