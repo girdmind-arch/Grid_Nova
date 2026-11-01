@@ -435,10 +435,10 @@ def test_capability_map_is_honest(rig):
     caps = rig.c.get("/api/hardware/capabilities").json()
     s = caps["scenarios"]
     assert s["grid_outage"]["hardware"] == "supported" and s["grid_outage"]["approval"] is True
-    assert s["heatwave"]["hardware"] == "approximation" and "not air conditioning" in s["heatwave"]["summary"].lower()
-    assert s["line_failure"]["hardware"] == "simulated_only"
-    assert s["cloud_cover"]["hardware"] == "software_only" and "no solar panel" in s["cloud_cover"]["summary"].lower()
-    assert caps["commands"] == ["select_source", "set_load"] and caps["stateOfCharge"] == "unknown"
+    assert s["heatwave"]["hardware"] == "approximation" and "pwm brightness" in s["heatwave"]["summary"].lower()
+    assert s["line_failure"]["hardware"] == "approximation"
+    assert s["cloud_cover"]["hardware"] == "approximation" and "no solar panel" in s["cloud_cover"]["summary"].lower()
+    assert caps["commands"] == ["select_source", "set_load", "set_brightness"] and caps["stateOfCharge"] == "unknown"
     assert {"name": "critical", "essential": True} in caps["loads"]
 
 
@@ -461,29 +461,57 @@ def test_scenarios_stay_in_the_simulation_unless_armed(rig, kind):
     assert rig.commands() == []
 
 
-def test_cloud_cover_and_line_failure_never_reach_the_rig_even_when_armed(rig):
+def test_cloud_cover_uses_visual_pwm_approximation(rig):
     rig.arm()
     cc = inject(rig, "cloud_cover", 5)["hardware"]
-    assert cc["outcome"] == "software_only" and "no solar panel" in cc["reason"].lower() and cc["commandIds"] == []
-    lf = inject(rig, "line_failure")["hardware"]
-    assert lf["outcome"] == "unsupported_on_hardware" and lf["commandIds"] == []
-    assert rig.state()["commands"] == [] and rig.commands() == []
+    assert cc["outcome"] == "hardware_pending" and "no solar panel" in cc["reason"].lower()
+    cloud_cmds = rig.commands()
+    assert len(cloud_cmds) == 3 and all(c["type"] == "set_brightness" for c in cloud_cmds)
+    assert {c["params"]["level"] for c in cloud_cmds} == {35}
+
+
+def test_line_failure_uses_target_zone_visual_pwm(rig):
+    rig.arm()
+    lf = inject(rig, "line_failure", 3)["hardware"]
+    assert lf["outcome"] == "hardware_pending" and lf["commandIds"]
+    line_cmds = rig.commands()
+    assert [(c["type"], c["params"]) for c in line_cmds] == [("set_brightness", {"load": "hostel", "level": 32})]
     assert "solar" not in str(rig.state()["device"]["readings"]).lower()  # nothing solar is ever invented
 
 
-def test_heatwave_adds_led_demand_and_restores_on_clear(rig):
+def test_heatwave_changes_led_brightness_and_restores_on_clear(rig):
     rig.arm()
     rig.tick(1, loads={"critical": True, "hostel": False, "library": False, "extra": False})
     res = inject(rig, "heatwave", 3)["hardware"]
-    assert res["outcome"] == "hardware_pending" and "not air conditioning" in res["reason"].lower()
+    assert res["outcome"] == "hardware_pending" and "not cooling" in res["reason"].lower()
     got = rig.commands()
-    assert [(c["type"], c["params"]) for c in got] == [("set_load", {"load": "extra", "on": True}), ("set_load", {"load": "library", "on": True})]
+    assert [(c["type"], c["params"]) for c in got] == [
+        ("set_brightness", {"load": "extra", "level": 187}),
+        ("set_brightness", {"load": "library", "level": 187}),
+    ]
     for c in got:
         rig.ack(c["id"])
     rig.tick(1, loads={"critical": True, "hostel": False, "library": True, "extra": True})
     rig.c.post("/api/scenarios/clear")
     back = rig.commands()
-    assert sorted((c["params"]["load"], c["params"]["on"]) for c in back) == [("extra", False), ("library", False)]
+    assert sorted((c["params"]["load"], c["params"]["level"]) for c in back) == [("extra", 0), ("library", 0)]
+
+
+def test_pwm_command_is_validated_and_verified_by_telemetry(rig):
+    rig.arm()
+    bad = rig.c.post("/api/hardware/commands", json={"type": "set_brightness", "load": "critical", "level": 0})
+    assert bad.status_code == 422
+    command = rig.c.post("/api/hardware/commands", json={"type": "set_brightness", "load": "hostel", "level": 128})
+    assert command.status_code == 200
+    queued = rig.commands()[0]
+    assert queued["type"] == "set_brightness" and queued["params"] == {"load": "hostel", "level": 128}
+    ack = rig.ack(queued["id"], loads={"critical": True, "hostel": True, "library": True, "extra": False},
+                  brightness={"critical": 255, "hostel": 128, "library": 255, "extra": 0})
+    assert ack.status_code == 200
+    assert rig.send(loads={"critical": True, "hostel": True, "library": True, "extra": False},
+                    brightness={"critical": 255, "hostel": 128, "library": 255, "extra": 0}).status_code == 200
+    done = next(c for c in rig.state()["commands"] if c["id"] == queued["id"])
+    assert done["physicallyPerformed"] is True
 
 
 def test_outage_waits_for_the_same_approval_as_the_simulation(rig):
