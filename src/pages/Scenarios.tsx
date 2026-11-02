@@ -1,10 +1,10 @@
-import { useEffect } from "react";
-import { Activity } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Activity, Layers, Play } from "lucide-react";
 import type { FaultType } from "@/types/grid";
 import { getGridState } from "@/services";
 import { useService } from "@/hooks/useService";
 import { useScenarioStore } from "@/store/scenarioStore";
-import { Badge, Card, ErrorState, IconTile, PageHeader, Skeleton } from "@/components/ui";
+import { Badge, Card, ErrorState, IconTile, PageHeader, SegmentedControl, Skeleton } from "@/components/ui";
 import { GridLegend } from "@/components/grid/GridDiagram";
 import { GridView } from "@/components/grid/GridView";
 import { AgentFeed } from "@/components/scenarios/AgentFeed";
@@ -14,8 +14,29 @@ import { ScenarioBanner } from "@/components/scenarios/ScenarioBanner";
 import { ScenarioHero } from "@/components/scenarios/ScenarioHero";
 import { ScenarioConfigCard } from "@/components/scenarios/ScenarioConfigCard";
 import { SCENARIO_ORDER } from "@/components/scenarios/scenarioMeta";
+import { AutopilotPanel } from "@/components/autopilot/AutopilotPanel";
+
+type Mode = "single" | "autopilot";
+const MODE_KEY = "gridnova-scenario-mode";
+
+function readMode(): Mode {
+  try {
+    return localStorage.getItem(MODE_KEY) === "autopilot" ? "autopilot" : "single";
+  } catch {
+    return "single";
+  }
+}
 
 export default function Scenarios() {
+  const [mode, setMode] = useState<Mode>(readMode);
+  const chooseMode = (m: Mode) => {
+    setMode(m);
+    try {
+      localStorage.setItem(MODE_KEY, m);
+    } catch {
+      // ignore
+    }
+  };
   const { phase, active, history, gridVersion, faultSnapshot, stage, touring, startFresh, loadTrace } = useScenarioStore();
   const grid = useService(getGridState, [gridVersion]);
   // Right after the fault hits, show the broken grid until the agents act.
@@ -45,8 +66,28 @@ export default function Scenarios() {
     <>
       <PageHeader
         title="Scenarios"
-        description="Pick a failure, set how bad it is, and watch the agents respond in real time."
+        description={
+          mode === "single"
+            ? "Pick a failure, set how bad it is, and watch the agents respond in real time."
+            : "Plan for an outage before it happens: many versions of the emergency, many plans, one approval."
+        }
       />
+
+      <SegmentedControl
+        label="Scenario mode"
+        value={mode}
+        onChange={chooseMode}
+        className="mb-5 w-full sm:w-auto"
+        options={[
+          { value: "single", label: "Single run", icon: <Play aria-hidden /> },
+          { value: "autopilot", label: "Many runs", icon: <Layers aria-hidden /> },
+        ]}
+      />
+
+      {mode === "autopilot" ? (
+        <AutopilotPanel />
+      ) : (
+        <>
 
       {!active && <ScenarioHero onTry={() => start("line_failure")} disabled={busy} />}
 
@@ -108,6 +149,8 @@ export default function Scenarios() {
           ))}
         </div>
       </section>
+        </>
+      )}
     </>
   );
 }

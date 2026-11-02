@@ -17,6 +17,7 @@ import { RESULTS, RUN_HISTORY } from "./mock/results";
 import { LEARNING_SNAPSHOT } from "./mock/learning";
 import { simNow, syncSimClock } from "@/utils/simTime";
 import type { DataSource, HardwareState } from "@/types/hardware";
+import type { AutopilotRequest, AutopilotStudy } from "@/types/autopilot";
 export { createMaintenanceTicket, deleteMaintenanceTicket, getMaintenancePhoto, getMaintenanceStatus, getMaintenanceTickets, TICKET_CATEGORIES, TICKET_STATUSES, updateMaintenanceTicket } from "./maintenance";
 export type { MaintenancePhoto, MaintenanceRole, MaintenanceStatus, MaintenanceTicket, NewMaintenanceTicket, TicketStatus } from "./maintenance";
 
@@ -369,3 +370,11 @@ export const armHardware = (minutes = 10) => hwPost<HardwareState>("/api/hardwar
 export const disarmHardware = () => hwPost<HardwareState>("/api/hardware/disarm");
 export const emergencyStopHardware = () => hwPost<HardwareState>("/api/hardware/estop");
 export const resetEmergencyStop = () => hwPost<HardwareState>("/api/hardware/estop/reset");
+
+/** Resilience Autopilot: tests many plans against many versions of an outage (simulation only). */
+export async function runAutopilot(req: AutopilotRequest): Promise<AutopilotStudy> {
+  if (!USE_MOCKS) return request<AutopilotStudy>("/api/autopilot/plan", { method: "POST", body: JSON.stringify(req) });
+  // MOCK: the study runs the Python digital twin; there is no in-browser copy of it.
+  await mockDelay(200);
+  throw new ServiceError("The Autopilot runs the digital twin on the GridNova backend. Open the live site to use it.");
+}

@@ -28,6 +28,7 @@ from . import chatbot
 from . import maintenance
 from . import hardware as hw
 from . import campus as c
+from . import autopilot
 from .agents import GUARDRAILS, Orchestrator
 from .evaluation import build_results, build_run_history
 from .forecast import build_forecast
@@ -139,7 +140,8 @@ async def require_sign_in(request: Request, call_next):
         is_maintenance_report = path == "/api/maintenance/tickets" and request.method == "POST" and user.role in {"viewer", "operator"}
         is_maintenance_update = path.startswith("/api/maintenance/tickets/") and request.method == "PATCH" and user.role in {"technician", "operator"}
         is_maintenance_delete = re.fullmatch(r"/api/maintenance/tickets/[^/]+", path) is not None and request.method == "DELETE"
-        if request.method != "GET" and user.role != "operator" and path not in {"/api/auth/me", "/api/chat", "/v1/chat/completions"} and not is_maintenance_report and not is_maintenance_update and not is_maintenance_delete:
+        # The Autopilot study only runs the digital twin: anyone signed in may run it.
+        if request.method != "GET" and user.role != "operator" and path not in {"/api/auth/me", "/api/chat", "/v1/chat/completions", "/api/autopilot/plan"} and not is_maintenance_report and not is_maintenance_update and not is_maintenance_delete:
             return JSONResponse({"detail": "This account is view-only."}, status_code=403)
         request.state.user = user
     return await call_next(request)
@@ -661,6 +663,38 @@ def results():
 @app.post("/api/results/whatif")
 def results_whatif(body: WhatIfBody):
     return build_results(body.batteryKwh, body.solarPct, body.peakRate, body.tempOffsetC)
+
+
+class AutopilotBody(BaseModel):
+    heatSeverity: int = Field(4, ge=0, le=5)
+    solarPct: float = Field(35, ge=0, le=100)
+    outageStart: float = Field(14.5, ge=6, le=22)
+    outageHours: float = Field(2.0, ge=0.5, le=6)
+    startSoc: float = Field(70, ge=20, le=90)
+    runs: int = Field(40, ge=10, le=60)
+    floorPct: float = Field(c.BATTERY_FLOOR_PCT, ge=c.BATTERY_FLOOR_PCT, le=60)
+    protect: list[str] = Field(default_factory=list, max_length=len(c.ZONES))
+    seed: int | None = Field(None, ge=0, le=1_000_000)
+
+
+@app.post("/api/autopilot/plan")
+def autopilot_plan(body: AutopilotBody):
+    """Resilience Autopilot: test many plans against many versions of an outage (simulation only)."""
+    unknown = [z for z in body.protect if z not in c.ZONE_BY_ID]
+    if unknown:
+        raise HTTPException(400, f"Unknown building: {unknown[0]}.")
+    sc = autopilot.Scenario(
+        heat_severity=body.heatSeverity,
+        solar_pct=body.solarPct,
+        outage_start=body.outageStart,
+        outage_hours=body.outageHours,
+        start_soc=body.startSoc,
+        runs=body.runs,
+        floor_pct=body.floorPct,
+        protect=tuple(body.protect),
+        seed=body.seed if body.seed is not None else 7,
+    )
+    return autopilot.plan_study(sc)
 
 
 @app.get("/api/results/runs")
