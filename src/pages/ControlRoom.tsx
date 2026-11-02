@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Activity } from "lucide-react";
 import type { GridState } from "@/types/grid";
-import { getGridState } from "@/services";
+import { USE_MOCKS, getGridState } from "@/services";
 import { useService } from "@/hooks/useService";
 import { useSimClock } from "@/hooks/useSimClock";
 import { useAppStore } from "@/store/appStore";
@@ -10,6 +10,8 @@ import { Badge, Card, ErrorState, IconTile, Modal, PageHeader, Skeleton } from "
 import { GridLegend } from "@/components/grid/GridDiagram";
 import { GridView } from "@/components/grid/GridView";
 import { RigLiveCard } from "@/components/hardware/RigLiveCard";
+import { RigGrid } from "@/components/hardware/RigGrid";
+import { useHardwareState } from "@/components/settings/HardwareDemo";
 import { ScenarioBanner } from "@/components/scenarios/ScenarioBanner";
 import { SituationHero } from "@/components/control-room/SituationHero";
 import { StatStrip } from "@/components/control-room/StatStrip";
@@ -33,6 +35,9 @@ export default function ControlRoom() {
   const { gridVersion, decisions, phase, active, loadTrace } = useScenarioStore();
   const grid = useService(getGridState, [gridVersion]);
   const [gridOpen, setGridOpen] = useState(false);
+  // Data source "Rig": the Live grid becomes the tabletop rig as wired. The campus grid is unchanged in Sim.
+  const { state: hw } = useHardwareState();
+  const rig = !USE_MOCKS && hw?.mode === "hardware-demo" ? hw : null;
 
   useEffect(() => {
     void loadTrace();
@@ -78,20 +83,26 @@ export default function ControlRoom() {
       <Card className="mt-4 min-w-0">
         <div className="mb-5 flex items-center gap-2.5">
           <IconTile icon={<Activity />} tone="accent" size="sm" />
-          <h2 className="text-base font-semibold text-fg">Live grid</h2>
-          <Badge tone="success" size="sm" dot pulse className="ml-auto">
-            Live
+          <h2 className="text-base font-semibold text-fg">{rig ? "Live grid · Rig" : "Live grid"}</h2>
+          <Badge tone={rig && rig.device.status !== "online" ? "neutral" : "success"} size="sm" dot pulse={!rig || rig.device.status === "online"} className="ml-auto">
+            {rig ? (rig.device.status === "online" ? "Live · measured" : "Rig offline") : "Live"}
           </Badge>
         </div>
-        {grid.data ? <GridView state={grid.data} large /> : <Skeleton className="h-[450px] sm:h-[520px] lg:h-[600px]" />}
+        {rig ? (
+          <RigGrid state={rig} />
+        ) : grid.data ? (
+          <GridView state={grid.data} large />
+        ) : (
+          <Skeleton className="h-[450px] sm:h-[520px] lg:h-[600px]" />
+        )}
       </Card>
 
       <LatestDecision decision={shownDecision} className="mt-4 min-w-0" />
 
       <Modal open={gridOpen} onOpenChange={setGridOpen} title="Live grid" description={systemSummary(grid.data)} variant="full">
         <div className="mx-auto w-full max-w-5xl py-2">
-          {grid.data && <GridView state={grid.data} large />}
-          <GridLegend className="mt-6" />
+          {rig ? <RigGrid state={rig} /> : grid.data && <GridView state={grid.data} large />}
+          {!rig && <GridLegend className="mt-6" />}
         </div>
       </Modal>
     </>
