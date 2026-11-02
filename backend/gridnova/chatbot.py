@@ -103,3 +103,35 @@ The live dashboard values are simulation outputs. Weather may come from a public
 Available scenarios are cloud cover, heatwave, line failure and grid outage. Scenarios change the simulator; the chat assistant cannot start or control them.
 The default campus tariff is illustrative UPPCL-style pricing: ₹9.70/kWh from 18:00–22:00 and ₹6.90/kWh overnight. Settings can move the simulated campus to another Indian state and tariff.
 """
+
+
+# Keep greetings useful and never show punctuation-only generations as answers.
+_model_answer = answer
+
+def answer(
+    messages: list[dict[str, str]],
+    campus: dict,
+    *,
+    max_tokens: int = 700,
+    temperature: float = 0.3,
+) -> str:
+    latest_user = next(
+        (item.get("content", "").strip() for item in reversed(messages) if item.get("role") == "user"),
+        "",
+    )
+    normalized = " ".join("".join(char.lower() for char in latest_user if char.isalnum() or char.isspace()).split())
+    if normalized in {"hi", "hi bro", "hello", "hello there", "hey", "hey there", "hiya", "howdy", "yo"}:
+        return (
+            "Hi! I'm GridNova Assistant. I can explain the simulated campus, battery, solar, agents, "
+            "forecasts, scenarios, and recent decisions. What would you like to know?"
+        )
+
+    reply = _model_answer(messages, campus, max_tokens=max_tokens, temperature=temperature)
+    visible = [char for char in reply if not char.isspace()]
+    letters = sum(char.isalpha() for char in visible)
+    if not visible or letters == 0 or (len(visible) >= 8 and letters / len(visible) < 0.15 and not any(char.isdigit() for char in visible)):
+        return (
+            "I couldn't form a readable answer just now. Try asking about the simulated campus, battery, "
+            "solar output, agents, forecasts, scenarios, or recent decisions."
+        )
+    return reply
