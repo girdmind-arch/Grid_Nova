@@ -86,3 +86,22 @@ def test_api_endpoint():
         assert r.json()["scenario"]["runs"] == 10
         assert cl.post("/api/autopilot/plan", json={"protect": ["nope"]}).status_code == 400
         assert cl.post("/api/autopilot/plan", json={"runs": 500}).status_code == 422
+
+
+def test_agents_study_runs_the_real_planner_without_touching_the_grid():
+    with TestClient(app) as cl:
+        cl.post("/api/scenarios/clear")
+        before = cl.get("/api/grid/state").json()
+        trace_before = len(cl.get("/api/agents/trace").json())
+        r = cl.post("/api/agents/study", json={"type": "grid_outage", "severity": 4, "durationMin": 60})
+        assert r.status_code == 200, r.text
+        s = r.json()
+        assert s["search"]["twinRuns"] > 0
+        assert {ch["id"] for ch in s["chosen"]["checks"]} >= {"G1", "G2"}
+        n = len(s["series"]["hours"])
+        assert n > 0 and len(s["series"]["gridnova"]["socPct"]) == n == len(s["series"]["baseline"]["servedKw"])
+        assert all(g == 0 for g in s["series"]["gridnova"]["gridKw"][:5])  # islanded during the outage
+        after = cl.get("/api/grid/state").json()
+        assert after.get("activeFault") is None and before.get("activeFault") is None
+        assert len(cl.get("/api/agents/trace").json()) == trace_before  # no decision recorded
+        assert cl.post("/api/agents/study", json={"type": "nope"}).status_code == 422

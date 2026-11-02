@@ -140,8 +140,8 @@ async def require_sign_in(request: Request, call_next):
         is_maintenance_report = path == "/api/maintenance/tickets" and request.method == "POST" and user.role in {"viewer", "operator"}
         is_maintenance_update = path.startswith("/api/maintenance/tickets/") and request.method == "PATCH" and user.role in {"technician", "operator"}
         is_maintenance_delete = re.fullmatch(r"/api/maintenance/tickets/[^/]+", path) is not None and request.method == "DELETE"
-        # The Autopilot study only runs the digital twin: anyone signed in may run it.
-        if request.method != "GET" and user.role != "operator" and path not in {"/api/auth/me", "/api/chat", "/v1/chat/completions", "/api/autopilot/plan"} and not is_maintenance_report and not is_maintenance_update and not is_maintenance_delete:
+        # The Autopilot and agent studies only run the digital twin: anyone signed in may run them.
+        if request.method != "GET" and user.role != "operator" and path not in {"/api/auth/me", "/api/chat", "/v1/chat/completions", "/api/autopilot/plan", "/api/agents/study"} and not is_maintenance_report and not is_maintenance_update and not is_maintenance_delete:
             return JSONResponse({"detail": "This account is view-only."}, status_code=403)
         request.state.user = user
     return await call_next(request)
@@ -675,6 +675,21 @@ class AutopilotBody(BaseModel):
     floorPct: float = Field(c.BATTERY_FLOOR_PCT, ge=c.BATTERY_FLOOR_PCT, le=60)
     protect: list[str] = Field(default_factory=list, max_length=len(c.ZONES))
     seed: int | None = Field(None, ge=0, le=1_000_000)
+
+
+class StudyBody(BaseModel):
+    type: Literal["cloud_cover", "heatwave", "line_failure", "grid_outage"]
+    severity: int = Field(3, ge=1, le=5)
+    durationMin: int = Field(30, ge=5, le=240)
+    targetZoneId: str | None = None
+
+
+@app.post("/api/agents/study")
+def agents_study(body: StudyBody):
+    """The real agents plan a hypothetical fault from the live campus state. Nothing is applied."""
+    if body.targetZoneId and body.targetZoneId not in c.ZONE_BY_ID:
+        raise HTTPException(400, "Unknown zone.")
+    return orchestrator.study(body.type, body.severity, body.durationMin, body.targetZoneId)
 
 
 @app.post("/api/autopilot/plan")

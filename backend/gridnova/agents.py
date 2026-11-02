@@ -228,6 +228,38 @@ def run_twin(grid: LiveGrid, fault: Fault | None, pol: Policy, dt_min: float = 2
     return tot, bat.soc_pct
 
 
+def twin_series(grid: LiveGrid, fault: Fault | None, pol: Policy, dt_min: float = 5.0) -> list[dict]:
+    """Same run as run_twin, but kept step by step (for plotting): now -> end of the period."""
+    from .simulator import Battery, step
+
+    start = grid.hour()
+    end = horizon_end(start)
+    fault_end = min(end, start + fault.duration_min / 60) if fault else start
+    faulted, normal = grid.conditions(fault), grid.conditions(None)
+    after = replace(pol, bridge_solar_gap=False, extra_discharge_kw=0.0)
+    bat, tot = Battery(grid.battery.soc_pct), Totals()
+    labs = [z.id for z in c.ZONES if z.kind == "lab"]
+    rows, t, dt = [], start, dt_min / 60
+    while t < end - 1e-9:
+        h = min(dt, end - t)
+        during = fault is not None and t < fault_end
+        r = step(bat, tot, t, h, faulted if during else normal, pol if during else after)
+        kw = {z.id: z.kw for z in r.zones}
+        rows.append({
+            "hour": round(t, 4),
+            "demandKw": round(r.demand_kw, 1),
+            "solarKw": round(r.solar_kw, 1),
+            "gridKw": round(r.grid_kw, 1),
+            "batteryKw": round(r.battery_kw, 1),
+            "socPct": round(bat.soc_pct, 2),
+            "servedKw": round(r.demand_kw - r.unserved_kw, 1),
+            "unservedKw": round(r.unserved_kw, 1),
+            "labsPowered": all(kw[z] > 0 for z in labs),  # same test as Guardrail G1
+        })
+        t += h
+    return rows
+
+
 def guardrail(cand: Candidate, fault: Fault | None, floor: float) -> list[tuple[str, bool, str]]:
     t = cand.tot
     outage = bool(fault and fault.type == "grid_outage")
@@ -635,6 +667,86 @@ class Orchestrator:
         if pol.precool or pol.extra_discharge_kw > 20:
             ops += SETPOINT_MIN
         return ops
+
+    # ----- what-if study (MATLAB and other read-only clients) -----
+    def study(self, type_: str, severity: int, duration_min: int, target_zone_id: str | None = None) -> dict:
+        """Runs the real agents on a hypothetical fault, starting from the live campus right now.
+
+        The Planner searches the digital twin exactly as it does for a live scenario and the Guardrail
+        checks every plan, but nothing is applied: the live grid, the agents' memory and the rig are
+        untouched. Returns the decision plus minute-by-minute twin traces of the chosen plan and of the
+        no-AI baseline, so an outside tool (the MATLAB explorer) can plot what the agents decided.
+        """
+        g = self.grid
+        with self._lock:
+            hour = g.hour()
+            if type_ == "line_failure":
+                target_zone_id = target_zone_id or "hostel-gh1"
+            fault = Fault(type_, max(1, min(5, severity)), duration_min, f"STUDY-{self._next_id()}", hour, target_zone_id)
+            title, trigger, observed = self._scenario_context(fault)
+            best, alt, stats, recalled, _feats, learned, n_levers = self._search(
+                fault, fault.type, self._scenario_seeds(fault), fault.incident_id)
+            soc0 = g.battery.soc_pct
+            floor = self.goal.reserve_floor_pct
+            base = Candidate("baseline", "No-AI baseline", "", ["Fixed rules, no battery planning"], Policy.baseline())
+            base.start_soc, base.peak_ref_kw = soc0, g.policy.peak_target_kw or 0.0
+            base.tot, base.end_soc = run_twin(g, fault, base.policy)
+            base.checks = guardrail(base, fault, floor)
+            gm_rows = twin_series(g, fault, best.policy)
+            base_rows = twin_series(g, fault, base.policy)
+
+        detect = round(DETECT_MIN[fault.type] * (0.7 + 0.1 * fault.severity), 1)
+        analyse = round(stats.twin_runs * TWIN_RUN_MIN, 1)
+        act = round(self._act_minutes(fault, best), 1)
+
+        def plan(cand: Candidate) -> dict:
+            return {
+                "title": cand.title,
+                "actions": cand.actions,
+                "costInr": round(cand.cost),
+                "comfortPct": cand.comfort,
+                "risk": cand.risk,
+                "needsApproval": cand.needs_approval,
+                "unservedKwh": round(cand.tot.unserved_kwh, 1),
+                "labsUnpowered": cand.tot.labs_unpowered,
+                "endSocPct": round(cand.end_soc, 1),
+                "maxImportKw": round(cand.tot.max_import_kw),
+                "checks": [{"id": rid, "ok": ok, "text": msg} for rid, ok, msg in cand.checks],
+            }
+
+        def series(rows: list[dict], key: str) -> list:
+            return [r[key] for r in rows]
+
+        return {
+            "label": "GridNova agents · digital twin (simulation; nothing was applied)",
+            "at": iso(g.now()),
+            "startHour": round(hour, 4),
+            "horizonEnd": round(horizon_end(hour), 4),
+            "fault": {"type": fault.type, "severity": fault.severity, "durationMin": fault.duration_min, "targetZoneId": fault.target_zone_id},
+            "decision": {
+                "title": title,
+                "trigger": trigger,
+                "observed": observed,
+                "reason": self._reason(best, alt),
+                "explanation": self._explain(best, fault),
+                "planner": self._plan_summary(stats, fmt_hhmm(horizon_end(hour))) + " " + self._plan_detail(best, alt, stats, learned, n_levers),
+                "guardrail": self._safety_summary(best, alt),
+                "memory": f"Started from the plan that worked in {recalled['source']}." if recalled else "No similar situation in memory: searched from scratch.",
+            },
+            "chosen": plan(best),
+            "runnerUp": plan(alt),
+            "baseline": plan(base),
+            "search": self._search_json(stats, learned),
+            "recovery": {"gridnovaMin": round(detect + analyse + act, 1), "baselineMin": manual_minutes(fault.type, fault.severity),
+                         "detectMin": detect, "analyseMin": analyse, "actMin": act},
+            "series": {
+                "hours": series(gm_rows, "hour"),
+                "demandKw": series(base_rows, "demandKw"),
+                "solarKw": series(gm_rows, "solarKw"),
+                "gridnova": {k: series(gm_rows, k) for k in ("gridKw", "batteryKw", "socPct", "servedKw", "unservedKw", "labsPowered")},
+                "baseline": {k: series(base_rows, k) for k in ("gridKw", "batteryKw", "socPct", "servedKw", "unservedKw", "labsPowered")},
+            },
+        }
 
     def _scenario_decision(self, fault: Fault) -> dict:
         g = self.grid
