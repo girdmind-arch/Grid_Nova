@@ -10,7 +10,7 @@ import { Badge, Card, ErrorState, IconTile, Modal, PageHeader, Skeleton } from "
 import { GridLegend } from "@/components/grid/GridDiagram";
 import { GridView } from "@/components/grid/GridView";
 import { RigLiveCard } from "@/components/hardware/RigLiveCard";
-import { RigGrid } from "@/components/hardware/RigGrid";
+import { RigView } from "@/components/hardware/RigView";
 import { useHardwareState } from "@/components/settings/HardwareDemo";
 import { ScenarioBanner } from "@/components/scenarios/ScenarioBanner";
 import { SituationHero } from "@/components/control-room/SituationHero";
@@ -89,7 +89,7 @@ export default function ControlRoom() {
           </Badge>
         </div>
         {rig ? (
-          <RigGrid state={rig} />
+          <RigView state={rig} large />
         ) : grid.data ? (
           <GridView state={grid.data} large />
         ) : (
@@ -101,7 +101,7 @@ export default function ControlRoom() {
 
       <Modal open={gridOpen} onOpenChange={setGridOpen} title="Live grid" description={systemSummary(grid.data)} variant="full">
         <div className="mx-auto w-full max-w-5xl py-2">
-          {rig ? <RigGrid state={rig} /> : grid.data && <GridView state={grid.data} large />}
+          {rig ? <RigView state={rig} large /> : grid.data && <GridView state={grid.data} large />}
           {!rig && <GridLegend className="mt-6" />}
         </div>
       </Modal>

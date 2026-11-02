@@ -206,7 +206,6 @@ export function RigGrid({ state, className }: { state: HardwareState; className?
         </p>
       )}
       <svg role="img" aria-label="Tabletop rig power path" viewBox={`0 0 ${L.W} ${L.H}`} className="block h-auto w-full select-none" preserveAspectRatio="xMidYMid meet">
-        <title>Tabletop rig power path</title>
         <desc>{summary}</desc>
         <defs>
           <filter id={`${uid}-glow`} x="-60%" y="-60%" width="220%" height="220%">

@@ -16,7 +16,7 @@ import * as M from "./models";
 /** What the host (React) needs to know when a building is picked. */
 export type PickId = string;
 
-type Tone = "solar" | "battery" | "grid" | "zone" | "fault" | "reroute" | "idle";
+export type Tone = "solar" | "battery" | "grid" | "zone" | "fault" | "reroute" | "idle";
 
 interface Palette {
   ground: THREE.Color;
@@ -100,6 +100,7 @@ interface NodeView {
   liftTarget: number;
   windowLevel?: number; // last window brightness applied (skip identical updates)
   labelHtml?: string; // last label markup written (skip identical updates)
+  fit?: [number, number]; // half width/depth the camera keeps in frame (default 1.3 x 1.2)
 }
 
 type LineArgs = [points: THREE.Vector3[], kw: number, maxKw: number, tone: Tone, opts?: { reverse?: boolean }];
@@ -167,73 +168,73 @@ const SHORT: Record<string, string> = {
 const shortName = (n: string) => SHORT[n] ?? n;
 
 export class GridScene {
-  private renderer: THREE.WebGLRenderer;
-  private labels: CSS2DRenderer;
-  private scene = new THREE.Scene();
-  private camera = new THREE.PerspectiveCamera(30, 1, 0.1, 200);
-  private controls: OrbitControls;
-  private root = new THREE.Group();
-  private pal: Palette;
-  private mats: {
+  protected renderer: THREE.WebGLRenderer;
+  protected labels: CSS2DRenderer;
+  protected scene = new THREE.Scene();
+  protected camera = new THREE.PerspectiveCamera(30, 1, 0.1, 200);
+  protected controls: OrbitControls;
+  protected root = new THREE.Group();
+  protected pal: Palette;
+  protected mats: {
     platform: THREE.MeshStandardMaterial;
     platformSide: THREE.MeshStandardMaterial;
     models: M.ModelMaterials;
     batteryFill: THREE.MeshStandardMaterial;
     ground: THREE.ShaderMaterial;
   };
-  private nodes = new Map<string, NodeView>();
-  private hemi!: THREE.HemisphereLight;
-  private sun!: THREE.DirectionalLight;
-  private rim!: THREE.DirectionalLight;
-  private shadowGround!: THREE.Mesh;
-  private motes!: THREE.Points;
-  private night = 0; // 0 = full day, 1 = deep night
-  private sunAngle = Math.PI / 2;
-  private shadowK = 1;
-  private solarFrac = 0;
-  private solarPeak = 300;
-  private batteryDir = 0;
-  private loadFrac = 0;
-  private t = 0;
-  private raycaster = new THREE.Raycaster();
-  private pointer = new THREE.Vector2();
-  private hoverId: PickId | null = null;
-  private selectedId: PickId | null = null;
-  private home = { target: new THREE.Vector3(), dist: 30 };
-  private fly: { t: number; fromT: THREE.Vector3; toT: THREE.Vector3; fromD: number; toD: number } | null = null;
-  private down: { x: number; y: number; at: number } | null = null;
-  private cleanup: (() => void)[] = [];
-  private flags: THREE.Object3D[] = [];
+  protected nodes = new Map<string, NodeView>();
+  protected hemi!: THREE.HemisphereLight;
+  protected sun!: THREE.DirectionalLight;
+  protected rim!: THREE.DirectionalLight;
+  protected shadowGround!: THREE.Mesh;
+  protected motes!: THREE.Points;
+  protected night = 0; // 0 = full day, 1 = deep night
+  protected sunAngle = Math.PI / 2;
+  protected shadowK = 1;
+  protected solarFrac = 0;
+  protected solarPeak = 300;
+  protected batteryDir = 0;
+  protected loadFrac = 0;
+  protected t = 0;
+  protected raycaster = new THREE.Raycaster();
+  protected pointer = new THREE.Vector2();
+  protected hoverId: PickId | null = null;
+  protected selectedId: PickId | null = null;
+  protected home = { target: new THREE.Vector3(), dist: 30 };
+  protected fly: { t: number; fromT: THREE.Vector3; toT: THREE.Vector3; fromD: number; toD: number } | null = null;
+  protected down: { x: number; y: number; at: number } | null = null;
+  protected cleanup: (() => void)[] = [];
+  protected flags: THREE.Object3D[] = [];
   /** Called when the user picks (or un-picks) a building. */
   onPick: ((id: PickId | null) => void) | null = null;
-  private lines: FlowLine[] = [];
-  private lineGroup = new THREE.Group();
-  private dotGeo = new THREE.SphereGeometry(0.075, 10, 8);
-  private packetGeo = new THREE.SphereGeometry(0.13, 12, 10);
-  private clock = new THREE.Clock();
-  private raf = 0;
-  private running = false;
-  private disposed = false;
-  private reduceMotion: boolean;
-  private narrow = false;
-  private compact = false;
+  protected lines: FlowLine[] = [];
+  protected lineGroup = new THREE.Group();
+  protected dotGeo = new THREE.SphereGeometry(0.075, 10, 8);
+  protected packetGeo = new THREE.SphereGeometry(0.13, 12, 10);
+  protected clock = new THREE.Clock();
+  protected raf = 0;
+  protected running = false;
+  protected disposed = false;
+  protected reduceMotion: boolean;
+  protected narrow = false;
+  protected compact = false;
   /** Phones and small screens: lower resolution, 30 fps, cheaper shadows and glass. */
-  private lowPower: boolean;
-  private lastTick = 0;
+  protected lowPower: boolean;
+  protected lastTick = 0;
   /** Materials shared by the flow lines, so rebuilding lines never recompiles shaders. */
-  private lineMats = new Map<string, THREE.Material>();
-  private windowMats = new Map<number, THREE.MeshStandardMaterial>();
-  private lineSig = "";
-  private labelsDirty = true;
-  private shadowsDirty = true;
-  private shadowAge = 0;
-  private lastCam = new Float32Array(18);
-  private width = 1;
-  private height = 1;
-  private state: GridState | null = null;
-  private faultT = 0;
+  protected lineMats = new Map<string, THREE.Material>();
+  protected windowMats = new Map<number, THREE.MeshStandardMaterial>();
+  protected lineSig = "";
+  protected labelsDirty = true;
+  protected shadowsDirty = true;
+  protected shadowAge = 0;
+  protected lastCam = new Float32Array(18);
+  protected width = 1;
+  protected height = 1;
+  protected state: GridState | null = null;
+  protected faultT = 0;
 
-  constructor(private host: HTMLElement) {
+  constructor(protected host: HTMLElement) {
     this.reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     this.pal = readPalette();
 
@@ -328,7 +329,7 @@ export class GridScene {
   }
 
   // ---------- ground: soft grid that fades out at the edges ----------
-  private groundMaterial() {
+  protected groundMaterial() {
     return new THREE.ShaderMaterial({
       transparent: true,
       depthWrite: false,
@@ -352,7 +353,7 @@ export class GridScene {
     });
   }
 
-  private buildGround() {
+  protected buildGround() {
     const plane = new THREE.Mesh(new THREE.PlaneGeometry(60, 40), this.mats.ground);
     plane.rotation.x = -Math.PI / 2;
     plane.position.set(1.5, -0.001, 0);
@@ -366,7 +367,7 @@ export class GridScene {
   }
 
   /** A few drifting specks of light, like dust in low sun. Purely decorative. */
-  private buildMotes() {
+  protected buildMotes() {
     const n = 70;
     const pos = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) {
@@ -381,7 +382,7 @@ export class GridScene {
   }
 
   // ---------- platforms + models ----------
-  private platform(size: [number, number]) {
+  protected platform(size: [number, number]) {
     const [w, d] = size;
     const shape = roundedRect(w, d, 0.35);
     const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.22, bevelEnabled: true, bevelSize: 0.06, bevelThickness: 0.05, bevelSegments: 2, curveSegments: 8 });
@@ -392,7 +393,7 @@ export class GridScene {
     return { mesh, ring };
   }
 
-  private addNode(id: string, pos: THREE.Vector3, size: [number, number], model: THREE.Group, lift = 0, labelInFront = false, slot?: number) {
+  protected addNode(id: string, pos: THREE.Vector3, size: [number, number], model: THREE.Group, lift = 0, labelInFront = false, slot?: number) {
     const group = new THREE.Group();
     group.position.copy(pos);
     const { mesh, ring } = this.platform(size);
@@ -436,13 +437,14 @@ export class GridScene {
    * is what slowed phones down. Moving parts (solar panels, battery fills and rings,
    * the bus halo, flags), windows, lines and see-through parts are left as they are.
    */
-  private mergeStatic(model: THREE.Group) {
+  protected mergeStatic(model: THREE.Group) {
     const skip = new Set<THREE.Object3D>();
     const ud = model.userData;
     for (const k of ["panels", "fills", "rings"]) for (const o of (ud[k] ?? []) as THREE.Object3D[]) o.traverse((c) => skip.add(c));
     if (ud.halo) (ud.halo as THREE.Object3D).traverse((c) => skip.add(c));
     model.traverse((o) => {
-      if (o.userData.flag) o.traverse((c) => skip.add(c));
+      // flags wave; "live" parts (e.g. the rig's relay blade, status lights) are changed after build
+      if (o.userData.flag || o.userData.live) o.traverse((c) => skip.add(c));
     });
     model.updateMatrixWorld(true);
     const inv = model.matrixWorld.clone().invert();
@@ -483,7 +485,7 @@ export class GridScene {
     }
   }
 
-  private buildNodes() {
+  protected buildNodes() {
     const m = this.mats.models;
     this.addNode("solar", SRC.solar, [3.4, 2.8], M.solarFarm(m));
     this.addNode("battery", SRC.battery, [3.0, 2.2], M.batteryBank(m, this.mats.batteryFill));
@@ -492,7 +494,7 @@ export class GridScene {
   }
 
   /** Builds or refreshes zone platforms from the state (ids are stable). */
-  private ensureZones(zones: Zone[]) {
+  protected ensureZones(zones: Zone[]) {
     const placed = this.zoneSlots(zones);
     for (const { zone, pos, index, row } of placed) {
       if (this.nodes.has(zone.id)) continue;
@@ -517,12 +519,12 @@ export class GridScene {
    * bottom, where the card has spare height but little width, so the slots
    * are spread out along it (this gives the labels room).
    */
-  private zx(i: number) {
+  protected zx(i: number) {
     return ZONE_X[i] * (this.narrow ? NARROW_STRETCH : 1);
   }
 
   /** Residential buildings along the back row, academic/admin along the front. */
-  private zoneSlots(zones: Zone[]) {
+  protected zoneSlots(zones: Zone[]) {
     const residential = (z: Zone) => z.kind === "hostel" || z.kind === "residence";
     const back = zones.filter(residential).slice(0, ZONE_X.length);
     const front = zones.filter((z) => !residential(z)).slice(0, ZONE_X.length);
@@ -534,7 +536,7 @@ export class GridScene {
 
   // ---------- time of day ----------
   /** Light follows the simulated hour: warm low sun at the edges of the day, cool dim light at night. */
-  private setAtmosphere(hour: number) {
+  protected setAtmosphere(hour: number) {
     const a = Math.PI * ((hour - 6) / 12); // 0 at 06:00, π/2 at noon, π at 18:00
     const elev = Math.sin(a); // −1 … 1
     const day = THREE.MathUtils.smoothstep(elev, -0.08, 0.32);
@@ -564,7 +566,7 @@ export class GridScene {
    * The hour (0–24) of the state's timestamp. An explicit offset (the backend sends
    * IST) is read as written; a UTC "Z" stamp (demo data) is shown in the viewer's clock.
    */
-  private hourOf(ts: string) {
+  protected hourOf(ts: string) {
     if (/Z$/.test(ts)) {
       const d = new Date(ts);
       return Number.isNaN(d.getTime()) ? 12 : d.getHours() + d.getMinutes() / 60;
@@ -609,18 +611,18 @@ export class GridScene {
     this.windowMats.forEach((m) => m.dispose());
     this.windowMats.clear();
     for (const n of this.nodes.values()) n.windowLevel = undefined;
-    if (this.state) this.update(this.state);
+    this.refresh();
     this.shadowsDirty = true;
     this.requestFrame();
   }
 
-  private tone(t: Tone) {
+  protected tone(t: Tone) {
     const p = this.pal;
     return t === "solar" ? p.solar : t === "battery" ? p.success : t === "fault" ? p.danger : t === "reroute" ? p.ai : t === "idle" ? p.idle : p.accent;
   }
 
   // ---------- flow lines ----------
-  private clearLines() {
+  protected clearLines() {
     for (const l of this.lines) {
       l.group.traverse((o) => {
         const mesh = o as THREE.Mesh;
@@ -636,7 +638,7 @@ export class GridScene {
   }
 
   /** One shared material per look, so line rebuilds reuse compiled shaders. */
-  private lineMat(key: string, make: () => THREE.Material) {
+  protected lineMat(key: string, make: () => THREE.Material) {
     let m = this.lineMats.get(key);
     if (!m) {
       m = make();
@@ -645,7 +647,7 @@ export class GridScene {
     return m;
   }
 
-  private addLine(points: THREE.Vector3[], kw: number, maxKw: number, tone: Tone, opts: { reverse?: boolean } = {}) {
+  protected addLine(points: THREE.Vector3[], kw: number, maxKw: number, tone: Tone, opts: { reverse?: boolean } = {}) {
     const curve = route(points);
     const length = curve.getLength();
     const group = new THREE.Group();
@@ -707,7 +709,7 @@ export class GridScene {
     this.lines.push(line);
   }
 
-  private placeDots(l: FlowLine) {
+  protected placeDots(l: FlowLine) {
     if (l.packets && l.packetGlow) {
       const np = l.packets.count;
       const mt = new THREE.Matrix4();
@@ -739,6 +741,11 @@ export class GridScene {
   }
 
   // ---------- data ----------
+  /** Re-applies the latest data (after a theme or size change). Subclasses with other data override it. */
+  protected refresh() {
+    if (this.state) this.update(this.state);
+  }
+
   update(state: GridState) {
     this.state = state;
     this.shadowsDirty = true; // the sun may have moved with the clock
@@ -859,7 +866,7 @@ export class GridScene {
     this.requestFrame();
   }
 
-  private setHeat(id: string, color: THREE.Color, opacity: number) {
+  protected setHeat(id: string, color: THREE.Color, opacity: number) {
     const node = this.nodes.get(id);
     if (!node) return;
     const mat = node.heat.material as THREE.MeshBasicMaterial;
@@ -867,7 +874,7 @@ export class GridScene {
     mat.opacity = opacity;
   }
 
-  private setWindows(id: string, level: number) {
+  protected setWindows(id: string, level: number) {
     const node = this.nodes.get(id);
     if (!node || node.windowLevel === level) return;
     node.windowLevel = level;
@@ -889,7 +896,7 @@ export class GridScene {
     });
   }
 
-  private ring(id: string, tone: Tone, warn = false) {
+  protected ring(id: string, tone: Tone, warn = false) {
     const node = this.nodes.get(id);
     if (!node) return;
     const mat = node.ring.material as THREE.LineBasicMaterial;
@@ -897,7 +904,7 @@ export class GridScene {
     node.ring.userData.fault = tone === "fault";
   }
 
-  private setLabel(id: string, rawName: string, rawValue: string, rawSub: string | undefined, tone: string, shield = false) {
+  protected setLabel(id: string, rawName: string, rawValue: string, rawSub: string | undefined, tone: string, shield = false) {
     const node = this.nodes.get(id);
     if (!node) return;
     const esc = (t: string) => t.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
@@ -925,7 +932,7 @@ export class GridScene {
     if (wasNarrow !== this.narrow) for (const n of this.nodes.values()) if (n.slot !== undefined) n.group.position.x = this.zx(n.slot);
     const wasCompact = this.compact;
     this.compact = width < 760;
-    if ((wasCompact !== this.compact || wasNarrow !== this.narrow) && this.state) this.update(this.state);
+    if (wasCompact !== this.compact || wasNarrow !== this.narrow) this.refresh();
     this.renderer.setSize(this.width, this.height, false);
     this.renderer.domElement.style.width = `${this.width}px`;
     this.renderer.domElement.style.height = `${this.height}px`;
@@ -943,12 +950,13 @@ export class GridScene {
   }
 
   /** Moves the camera back until every platform and label fits in the frame. */
-  private fitCamera() {
+  protected fitCamera() {
     const pts: THREE.Vector3[] = [];
     const labelPts: THREE.Vector3[] = [];
     for (const n of this.nodes.values()) {
       const c = n.group.getWorldPosition(new THREE.Vector3());
-      for (const [dx, dz] of [[-1.3, -1.2], [1.3, -1.2], [-1.3, 1.2], [1.3, 1.2]]) pts.push(c.clone().add(new THREE.Vector3(dx, 0, dz)));
+      const [hx, hz] = n.fit ?? [1.3, 1.2];
+      for (const [dx, dz] of [[-hx, -hz], [hx, -hz], [-hx, hz], [hx, hz]]) pts.push(c.clone().add(new THREE.Vector3(dx, 0, dz)));
       const lp = n.label.getWorldPosition(new THREE.Vector3());
       pts.push(lp);
       labelPts.push(lp);
@@ -1016,7 +1024,7 @@ export class GridScene {
   }
 
   // ---------- picking: hover, click, fly-to ----------
-  private pick(cx: number, cy: number): PickId | null {
+  protected pick(cx: number, cy: number): PickId | null {
     const r = this.renderer.domElement.getBoundingClientRect();
     if (!r.width || !r.height) return null;
     this.pointer.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
@@ -1034,7 +1042,7 @@ export class GridScene {
     return null;
   }
 
-  private bindPointer() {
+  protected bindPointer() {
     const el = this.renderer.domElement;
     const on = <K extends keyof HTMLElementEventMap>(t: K, fn: (e: HTMLElementEventMap[K]) => void) => {
       el.addEventListener(t, fn);
@@ -1076,7 +1084,7 @@ export class GridScene {
     this.cleanup.push(() => window.removeEventListener("keydown", key));
   }
 
-  private refreshLift() {
+  protected refreshLift() {
     for (const [id, n] of this.nodes) n.liftTarget = id === this.selectedId ? 0.16 : id === this.hoverId ? 0.09 : 0;
     this.requestFrame();
   }
@@ -1089,7 +1097,7 @@ export class GridScene {
     if (notify) this.onPick?.(this.selectedId);
   }
 
-  private focus(id: PickId | null, instant: boolean) {
+  protected focus(id: PickId | null, instant: boolean) {
     this.root.updateMatrixWorld(true);
     const toT = this.home.target.clone();
     let toD = this.home.dist;
@@ -1105,7 +1113,7 @@ export class GridScene {
     this.requestFrame();
   }
 
-  private stepFly(dt: number) {
+  protected stepFly(dt: number) {
     const f = this.fly;
     if (!f) return;
     f.t = Math.min(1, f.t + dt / 0.85);
@@ -1148,7 +1156,7 @@ export class GridScene {
   }
 
   /** Slow ambient motion: lifts, solar tracking, battery rings, flag, dust. */
-  private animate(dt: number) {
+  protected animate(dt: number) {
     const moving = !this.reduceMotion && dt > 0;
     if (moving) this.t += dt;
     const t = this.t;
@@ -1195,7 +1203,7 @@ export class GridScene {
     (this.motes.material as THREE.PointsMaterial).opacity = 0.22 + 0.3 * this.night;
   }
 
-  private frame(dt: number) {
+  protected frame(dt: number) {
     if (this.disposed) return;
     this.stepFly(this.reduceMotion ? 1 : dt);
     this.controls.update();

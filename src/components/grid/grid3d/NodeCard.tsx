@@ -2,7 +2,7 @@ import { X } from "lucide-react";
 import type { GridState } from "@/types/grid";
 import { formatKw, formatNumber } from "@/utils/format";
 
-interface Info {
+export interface Info {
   title: string;
   kicker: string;
   rows: [string, string][];
@@ -107,6 +107,11 @@ const TONE: Record<Info["tone"], string> = {
 export function NodeCard({ id, state, onClose }: { id: string; state: GridState; onClose: () => void }) {
   const info = describe(id, state);
   if (!info) return null;
+  return <InfoCard info={info} onClose={onClose} />;
+}
+
+/** The card itself, for any 3D view (the campus, or the tabletop rig). */
+export function InfoCard({ info, onClose }: { info: Info; onClose: () => void }) {
   return (
     <div
       role="status"
