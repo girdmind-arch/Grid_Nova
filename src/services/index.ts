@@ -1,3 +1,4 @@
+// hi
 // The service layer: the ONLY place pages and components get data from.
 //
 // Each function has the signature the real FastAPI backend will use. Today they

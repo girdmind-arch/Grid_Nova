@@ -1,3 +1,4 @@
+// hi
 import { Bot, Hand, ShieldCheck } from "lucide-react";
 import type { ControlMode } from "@/types/grid";
 import { Badge } from "./Badge";

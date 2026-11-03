@@ -1,3 +1,4 @@
+// hi
 // Tiny optional sound cues for scenario demos, made with the Web Audio API
 // (no audio files). Off by default; the choice is remembered per browser.
 

@@ -1,3 +1,4 @@
+// hi
 /**
  * A faint campus silhouette standing on the backdrop's horizon: hostel blocks,
  * the labs, the library, a water tank, rooftop solar, a wind turbine and the

@@ -1,3 +1,4 @@
+// hi
 import { useEffect } from "react";
 import { Navigate, Outlet, useLocation } from "react-router";
 import { AUTH_REQUIRED } from "@/services/auth";

@@ -1,3 +1,4 @@
+// hi
 // MOCK: past incidents and the Critic's lessons learned.
 
 import type { IncidentMemory } from "@/types/agents";

@@ -1,3 +1,4 @@
+# hi
 """Hardware demo: a safe, low-voltage ESP32 tabletop rig next to the simulated campus.
 
 The simulation stays the default and is NEVER fed by the rig. The rig has its own state, its own

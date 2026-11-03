@@ -1,3 +1,4 @@
+// hi
 import { Battery, BatteryCharging, BedDouble, Cpu, House, Landmark, Library, Presentation, SunMedium, UtilityPole } from "lucide-react";
 import type { GridState, Zone, ZoneKind } from "@/types/grid";
 import { useElementWidth } from "@/hooks/useElementWidth";

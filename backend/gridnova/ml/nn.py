@@ -1,3 +1,4 @@
+# hi
 """A small feed-forward neural network written from scratch with numpy.
 
 Dense layers with tanh hidden units and a linear output, trained with mini-batch Adam on

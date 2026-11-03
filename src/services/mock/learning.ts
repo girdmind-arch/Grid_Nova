@@ -1,3 +1,4 @@
+// hi
 // MOCK: a snapshot of the last real training run (backend/gridnova/ml/models/metrics.json),
 // shown when the site runs without the backend. Regenerate it after retraining.
 import type { LearningReport } from "@/types/agents";

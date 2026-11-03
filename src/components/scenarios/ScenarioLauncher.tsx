@@ -1,3 +1,4 @@
+// hi
 import { useId, useState } from "react";
 import { MonitorPlay, Shuffle, Square, Wand2 } from "lucide-react";
 import type { FaultType } from "@/types/grid";

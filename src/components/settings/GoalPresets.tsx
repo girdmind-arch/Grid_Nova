@@ -1,3 +1,4 @@
+// hi
 import { useState } from "react";
 import { BatteryFull, CloudLightning, IndianRupee, Loader2, Scale, Send, Thermometer } from "lucide-react";
 import { setGoal as setGoalService } from "@/services";

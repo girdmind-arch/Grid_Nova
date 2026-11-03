@@ -1,3 +1,4 @@
+<!-- hi -->
 # GridNova
 
 **A control room that thinks, acts, and explains.**

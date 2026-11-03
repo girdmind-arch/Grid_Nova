@@ -1,3 +1,4 @@
+// hi
 import { useId, useState } from "react";
 import { Play, Sparkles } from "lucide-react";
 import type { FaultType } from "@/types/grid";

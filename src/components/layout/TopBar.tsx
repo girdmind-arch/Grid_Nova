@@ -1,3 +1,4 @@
+// hi
 import { useAppStore } from "@/store/appStore";
 import { ModeIndicator, ThemeToggle } from "@/components/ui";
 import { Logo } from "./Logo";

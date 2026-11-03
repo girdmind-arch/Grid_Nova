@@ -1,3 +1,4 @@
+// hi
 import { useEffect, useRef, useState } from "react";
 import { Bot, LoaderCircle, MessageCircle, Send, Sparkles, X } from "lucide-react";
 import { askGridNova } from "@/services";

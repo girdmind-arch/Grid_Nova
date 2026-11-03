@@ -1,3 +1,4 @@
+// hi
 import { createBrowserRouter, RouterProvider } from "react-router";
 import { MotionConfig } from "framer-motion";
 import { ThemeProvider } from "@/hooks/useTheme";

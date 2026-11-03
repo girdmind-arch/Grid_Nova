@@ -1,3 +1,4 @@
+# hi
 """The agents: observe -> reason -> plan (search in the twin) -> safety -> act -> learn.
 
 Who does what, and what is learned rather than written by hand:

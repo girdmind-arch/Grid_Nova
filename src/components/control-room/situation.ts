@@ -1,3 +1,4 @@
+// hi
 import type { GridState } from "@/types/grid";
 import type { Decision } from "@/types/agents";
 import type { ScenarioPhase } from "@/store/scenarioStore";

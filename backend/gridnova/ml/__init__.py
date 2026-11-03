@@ -1,3 +1,4 @@
+# hi
 """GridNova's own machine learning: no external AI service, no pretrained model.
 
     nn.py          a small neural network (numpy only): layers, Adam, save / load

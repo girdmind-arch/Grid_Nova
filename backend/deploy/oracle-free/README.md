@@ -1,3 +1,4 @@
+<!-- hi -->
 # Free Oracle-hosted GridNova chatbot
 
 This runs GridNova's existing Qwen3 1.7B LoRA adapter on Oracle Cloud Infrastructure's Always Free Ampere VM (ARM CPU) and publishes it through Tailscale Funnel's HTTPS endpoint. Inference stays on this VM; neither the chatbot nor the campus backend calls an external AI inference API. The model server listens only on loopback and requires the same bearer token already stored in Railway.

@@ -1,3 +1,4 @@
+// hi
 import type { FaultType } from "@/types/grid";
 
 // Turns a short description ("severe heatwave for an hour") into scenario

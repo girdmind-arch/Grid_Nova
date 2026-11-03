@@ -1,3 +1,4 @@
+// hi
 import { Cloud, Flame, Unplug, Zap } from "lucide-react";
 import type { FaultType } from "@/types/grid";
 import type { IconTileTone } from "@/components/ui/IconTile";

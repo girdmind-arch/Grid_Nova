@@ -1,3 +1,4 @@
+# hi
 """Persistent maintenance tickets and private, normalized photo attachments."""
 
 from __future__ import annotations

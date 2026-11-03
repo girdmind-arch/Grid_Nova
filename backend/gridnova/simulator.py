@@ -1,3 +1,4 @@
+# hi
 """Grid physics shared by the live grid, the digital twin and the evaluation.
 
 One `step()` advances the campus by `dt_h` hours: building loads, solar,

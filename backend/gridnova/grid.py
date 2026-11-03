@@ -1,3 +1,4 @@
+# hi
 """The live campus grid: clock, weather, the current fault and the controller.
 
 Two clock modes:

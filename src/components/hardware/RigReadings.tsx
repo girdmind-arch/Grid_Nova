@@ -1,3 +1,4 @@
+// hi
 import type { HardwareState, RigReading } from "@/types/hardware";
 import { Badge } from "@/components/ui";
 import { cn } from "@/utils/cn";

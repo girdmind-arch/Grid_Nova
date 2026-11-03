@@ -1,3 +1,4 @@
+// hi
 import { Battery, Gauge, SunMedium, UtilityPole } from "lucide-react";
 import type { GridState } from "@/types/grid";
 import { StatTile } from "@/components/ui";

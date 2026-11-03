@@ -1,3 +1,4 @@
+# hi
 """GridNova Q&A gateway for the locally hosted, GridNova-fine-tuned model."""
 
 from __future__ import annotations

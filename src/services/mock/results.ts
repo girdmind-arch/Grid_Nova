@@ -1,3 +1,4 @@
+// hi
 // MOCK: evaluation results, GridNova vs. a rule-free (no-AI) baseline,
 // from the simulated campus. Replace with backend evaluation runs.
 //

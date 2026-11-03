@@ -1,3 +1,4 @@
+// hi
 import { Link } from "react-router";
 import { ArrowRight } from "lucide-react";
 import { Button, ThemeToggle } from "@/components/ui";

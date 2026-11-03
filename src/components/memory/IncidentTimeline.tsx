@@ -1,3 +1,4 @@
+// hi
 import { Timer } from "lucide-react";
 import type { Incident, Lesson } from "@/types/agents";
 import { Badge, IconTile } from "@/components/ui";

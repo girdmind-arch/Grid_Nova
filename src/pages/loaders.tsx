@@ -1,3 +1,4 @@
+// hi
 // Each app page is code-split and lazy-loaded, and warmed up in the background once the
 // app is open. A page whose code is already here renders directly (no Suspense), which
 // avoids React's ~300 ms "reveal after fallback" delay on the first visit.

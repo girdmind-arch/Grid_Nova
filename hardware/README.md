@@ -1,3 +1,4 @@
+<!-- hi -->
 # GridNova tabletop rig: build, wiring and demo
 
 This folder is for the optional, **low-voltage** ESP32 rig. The main README ("Hardware demo") explains the device API; this file is about the bench.

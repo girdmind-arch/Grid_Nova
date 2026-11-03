@@ -1,3 +1,4 @@
+// hi
 import { useEffect, useRef, useState } from "react";
 import type { GridState } from "@/types/grid";
 import { GridScene } from "./GridScene";

@@ -1,3 +1,4 @@
+// hi
 import { useEffect, useState } from "react";
 import { useHardwareStore, watchHardware } from "@/store/hardwareStore";
 import { OctagonX, Plug, ShieldCheck } from "lucide-react";

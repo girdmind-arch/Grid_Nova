@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# hi
 """A pretend ESP32 for trying the hardware demo without any hardware.
 
 !! Every number this prints is SYNTHETIC. It exists to exercise the device contract (README, "Device

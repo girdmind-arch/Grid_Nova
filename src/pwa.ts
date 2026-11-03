@@ -1,3 +1,4 @@
+// hi
 /**
  * Registers the service worker (production only) and reloads once when a new
  * version takes over, so a tab never mixes old and new files.

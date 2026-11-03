@@ -1,3 +1,4 @@
+// hi
 import { Bot, ChartColumn, Gauge, History, Settings, Wrench, Zap } from "lucide-react";
 
 // Single source of truth for app navigation (sidebar, bottom nav, search).

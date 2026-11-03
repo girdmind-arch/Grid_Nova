@@ -1,3 +1,4 @@
+// hi
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { BrainCircuit, Gauge, History, LineChart as LineIcon } from "lucide-react";
 import type { LearningReport } from "@/types/agents";

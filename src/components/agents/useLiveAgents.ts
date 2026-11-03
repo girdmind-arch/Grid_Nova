@@ -1,3 +1,4 @@
+// hi
 import { useEffect, useMemo } from "react";
 import type { Agent, AgentId, AgentStatus } from "@/types/agents";
 import type { FaultType } from "@/types/grid";

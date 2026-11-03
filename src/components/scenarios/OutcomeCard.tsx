@@ -1,3 +1,4 @@
+// hi
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { BrainCircuit, Flag, GraduationCap, Printer, Timer } from "lucide-react";

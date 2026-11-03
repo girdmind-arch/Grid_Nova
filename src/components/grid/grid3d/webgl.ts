@@ -1,3 +1,4 @@
+// hi
 /** True when the browser can create a WebGL context (checked once). */
 let cached: boolean | null = null;
 export function webglAvailable() {

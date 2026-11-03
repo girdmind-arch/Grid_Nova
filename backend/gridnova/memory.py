@@ -1,3 +1,4 @@
+# hi
 """Incident memory: what happened, what was done, and the lessons learned.
 
 Starts with four incidents from earlier in the month (the campus's history) and

@@ -1,3 +1,4 @@
+# hi
 """Hardware demo: every test talks to a mocked device. Nothing here touches a real rig or the live site."""
 
 import copy

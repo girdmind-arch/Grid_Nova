@@ -1,3 +1,4 @@
+# hi
 """GridNova backend: FastAPI app serving the API and the built website.
 
 Run locally:  uvicorn gridnova.main:app --reload   (from the backend/ folder)

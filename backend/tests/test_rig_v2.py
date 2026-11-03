@@ -1,3 +1,4 @@
+# hi
 """The recommended build: one INA219 after the relay, an adapter-sense divider, three LED branches.
 
 Everything talks to a mocked device. The rig drives the demo: unplugging the adapter starts the

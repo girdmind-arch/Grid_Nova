@@ -1,3 +1,4 @@
+// hi
 import { useState } from "react";
 import { CloudSun } from "lucide-react";
 import type { Environment } from "@/types/grid";

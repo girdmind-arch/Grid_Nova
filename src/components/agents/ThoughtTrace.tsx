@@ -1,3 +1,4 @@
+// hi
 import { BrainCircuit } from "lucide-react";
 import { useScenarioStore } from "@/store/scenarioStore";
 import { Badge, ErrorState, IconTile, Skeleton, ThinkingSteps } from "@/components/ui";

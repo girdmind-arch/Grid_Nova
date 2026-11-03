@@ -1,3 +1,4 @@
+// hi
 import { useTheme } from "@/hooks/useTheme";
 import { SegmentedControl } from "./SegmentedControl";
 import { THEME_OPTIONS } from "./ThemeToggle";

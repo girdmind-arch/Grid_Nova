@@ -1,3 +1,4 @@
+// hi
 import { create } from "zustand";
 import type { FaultRequest, FaultType, GridState } from "@/types/grid";
 import type { HardwareDispatch } from "@/types/hardware";

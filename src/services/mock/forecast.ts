@@ -1,3 +1,4 @@
+// hi
 // MOCK: next-12-hour forecast from the Forecaster agent.
 
 import type { Forecast } from "@/types/grid";

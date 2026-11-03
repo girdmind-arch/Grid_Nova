@@ -1,3 +1,4 @@
+# hi
 """The Forecaster: the next 12 hours of demand, solar, temperature and tariff, plus events.
 
 Solar and temperature come from the live weather forecast (Open-Meteo). Demand is predicted

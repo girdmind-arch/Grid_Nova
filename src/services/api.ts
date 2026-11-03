@@ -1,3 +1,4 @@
+// hi
 // Tiny HTTP helper for the real FastAPI backend.
 // Set VITE_API_URL (e.g. http://localhost:8000) in .env.local to switch the
 // services from mock data to the backend. Use "/" when the backend serves this

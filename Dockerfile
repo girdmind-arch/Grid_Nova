@@ -1,3 +1,4 @@
+# hi
 # GridNova: the website and the FastAPI backend in one container.
 # Railway (or any Docker host) builds this file and runs it on $PORT.
 

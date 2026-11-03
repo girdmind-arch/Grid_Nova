@@ -1,3 +1,4 @@
+// hi
 // Shared data shapes. These describe what the FastAPI backend will send.
 // The mock services return the exact same shapes, so swapping is painless.
 

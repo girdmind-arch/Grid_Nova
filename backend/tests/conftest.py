@@ -1,3 +1,4 @@
+# hi
 # Lets the tests run from the repo root as well as from backend/.
 import os
 import sys

@@ -1,3 +1,4 @@
+// hi
 import { Link } from "react-router";
 import { FolderGit2 } from "lucide-react";
 import { Logo } from "@/components/layout/Logo";

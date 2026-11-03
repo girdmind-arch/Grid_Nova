@@ -1,3 +1,4 @@
+// hi
 import { Clock3, Cpu, Lock, MapPin, Palette, Smartphone, Target } from "lucide-react";
 import { PageHeader, Tabs, TabsContent, TabsList, TabsTrigger, ThemeSwitcher } from "@/components/ui";
 import { ControlModeHero } from "@/components/settings/ControlModeHero";

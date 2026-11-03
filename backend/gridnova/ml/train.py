@@ -1,3 +1,4 @@
+# hi
 """Trains GridNova's own models and measures them on days they never saw.
 
     cd backend && python -m gridnova.ml.train            # full training (~2 minutes on a laptop)

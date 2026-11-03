@@ -1,3 +1,4 @@
+// hi
 import { create } from "zustand";
 import type { HardwareState } from "@/types/hardware";
 import { ServiceError, USE_MOCKS, getHardwareState } from "@/services";

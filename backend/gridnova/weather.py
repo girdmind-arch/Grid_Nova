@@ -1,3 +1,4 @@
+# hi
 """Live weather for the campus from Open-Meteo (free, no API key).
 
 Every 15 minutes the backend fetches hourly temperature, solar irradiance (GHI)

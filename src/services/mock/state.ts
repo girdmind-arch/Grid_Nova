@@ -1,3 +1,4 @@
+// hi
 // MOCK: in-memory grid state. The real backend owns this state; here it lives
 // in the browser so the demo works offline.
 //

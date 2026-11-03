@@ -1,3 +1,4 @@
+// hi
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 // Fonts are bundled locally so the demo works without internet.

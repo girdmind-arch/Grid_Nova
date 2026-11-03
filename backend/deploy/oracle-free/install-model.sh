@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# hi
 set -euo pipefail
 
 REPO_DIR="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"

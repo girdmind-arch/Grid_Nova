@@ -1,3 +1,4 @@
+// hi
 import { useEffect, useState } from "react";
 import { Activity } from "lucide-react";
 import type { GridState } from "@/types/grid";

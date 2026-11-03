@@ -1,3 +1,4 @@
+// hi
 import type { ReactNode } from "react";
 import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
 import type { Trend } from "@/types/grid";

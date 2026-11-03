@@ -1,3 +1,4 @@
+// hi
 import { useEffect, useState } from "react";
 import { Activity, Layers, Play } from "lucide-react";
 import type { FaultType } from "@/types/grid";

@@ -1,3 +1,4 @@
+// hi
 // MOCK: demo campus used until the FastAPI simulator is connected.
 // A mid-sized Indian campus on a hot May evening, just before the 18:00 peak.
 // All numbers are illustrative but internally consistent:

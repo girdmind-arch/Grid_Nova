@@ -1,3 +1,4 @@
+// hi
 // The tabletop ESP32 rig. These are volts and amps at USB level: they are NEVER campus kW/kWh and
 // are never mixed into GridState. See the "Hardware demo" section of the README.
 

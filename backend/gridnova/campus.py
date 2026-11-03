@@ -1,3 +1,4 @@
+# hi
 """The simulated campus: buildings, feeders, battery, tariff and daily profiles.
 
 A mid-sized Indian campus on a hot May weekday. Numbers are illustrative but

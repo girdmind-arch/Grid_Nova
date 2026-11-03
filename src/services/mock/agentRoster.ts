@@ -1,3 +1,4 @@
+// hi
 // MOCK: the seven agents and the Guardrail's hard rules.
 // Status and last action are overlaid live in the UI from the thought trace.
 

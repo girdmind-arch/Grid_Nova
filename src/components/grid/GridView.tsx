@@ -1,3 +1,4 @@
+// hi
 import { Component, Suspense, lazy, useEffect, useRef, useState, type ReactNode } from "react";
 import { Box, LayoutGrid } from "lucide-react";
 import type { GridState } from "@/types/grid";

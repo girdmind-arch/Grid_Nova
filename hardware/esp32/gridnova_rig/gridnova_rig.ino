@@ -1,3 +1,4 @@
+// hi
 // GridNova tabletop rig: ESP32-WROOM-32 firmware (Arduino core for ESP32 3.x), recommended parts list.
 //
 // Hardware it expects (hardware/README.md has the wiring):

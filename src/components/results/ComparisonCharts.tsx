@@ -1,3 +1,4 @@
+// hi
 import { Bar, BarChart, CartesianGrid, LabelList, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Clock3, IndianRupee, TrendingDown } from "lucide-react";
 import type { ResultsSeriesPoint } from "@/types/agents";

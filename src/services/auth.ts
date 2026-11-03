@@ -1,3 +1,4 @@
+// hi
 import { API_URL, USE_MOCKS, ServiceError } from "./api";
 import { SIGNED_OUT_EVENT, readSession, writeSession, type Role, type Session } from "./session";
 

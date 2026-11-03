@@ -1,3 +1,4 @@
+// hi
 import { X } from "lucide-react";
 import type { GridState } from "@/types/grid";
 import { formatKw, formatNumber } from "@/utils/format";

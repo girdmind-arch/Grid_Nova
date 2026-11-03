@@ -1,3 +1,4 @@
+// hi
 import { useId, useState } from "react";
 import { ChevronDown, History, MessageCircleQuestion } from "lucide-react";
 import type { ApprovalResponse, Decision, TraceStep } from "@/types/agents";

@@ -1,3 +1,4 @@
+# hi
 """Fine-tune the local GridNova assistant with LoRA on Apple Silicon.
 
 The openly licensed base model is downloaded once from Hugging Face. Training

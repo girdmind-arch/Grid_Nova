@@ -1,3 +1,4 @@
+// hi
 import { ArrowRight, Play } from "lucide-react";
 import { Button, Card } from "@/components/ui";
 

@@ -1,3 +1,4 @@
+// hi
 // Opens the browser's print dialog, where "Save as PDF" makes a vector PDF
 // (sharp charts, selectable text) with no extra library.
 // For the printout it switches to the light theme and expands every
